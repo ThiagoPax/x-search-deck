@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: x-search-deck
+    runtime: python
+    region: ohio          # mais próximo do Brasil disponível no free tier
+    plan: starter         # $7/mês — necessário para não dormir (free dorme após 15min)
+    buildCommand: pip install -r requirements.txt && playwright install chromium --with-deps
+    startCommand: python server.py
+    envVars:
+      - key: X_COOKIES_JSON
+        sync: false          # você cola o valor no painel do Render
+      - key: REFRESH_INTERVAL
+        value: "60"
+      - key: MAX_TWEETS
+        value: "30"
+      - key: PAGE_WAIT
+        value: "6"
