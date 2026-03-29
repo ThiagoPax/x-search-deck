@@ -33,6 +33,31 @@ X_COOKIES_JSON   = os.environ.get("X_COOKIES_JSON", "")          # env var com c
 # ─────────────────────────────────────────────────────────
 
 
+def normalize_cookies(raw: list[dict]) -> list[dict]:
+    """Converte cookies do Cookie-Editor para o formato do Playwright."""
+    SAMESITE_MAP = {
+        "no_restriction": "None",
+        "lax":            "Lax",
+        "strict":         "Strict",
+        None:             "None",
+    }
+    result = []
+    for c in raw:
+        expires = c.get("expires") or c.get("expirationDate")
+        same    = c.get("sameSite")
+        result.append({
+            "name":     c["name"],
+            "value":    c["value"],
+            "domain":   c.get("domain", ".x.com"),
+            "path":     c.get("path", "/"),
+            "expires":  float(expires) if expires else -1,
+            "httpOnly": bool(c.get("httpOnly", False)),
+            "secure":   bool(c.get("secure", True)),
+            "sameSite": SAMESITE_MAP.get(same, "None") if isinstance(same, (str, type(None))) else "None",
+        })
+    return result
+
+
 def build_url(query: str, sort: str = "live") -> str:
     compact = re.sub(r"\s+", " ", query.replace("\n", " ")).strip()
     return (
@@ -190,7 +215,8 @@ class BrowserManager:
         # Injeta cookies do X
         if X_COOKIES_JSON:
             try:
-                cookies = json.loads(X_COOKIES_JSON)
+                raw_cookies = json.loads(X_COOKIES_JSON)
+                cookies = normalize_cookies(raw_cookies)
                 await self.context.add_cookies(cookies)
                 log.info(f"✅ {len(cookies)} cookies injetados")
             except Exception as e:
