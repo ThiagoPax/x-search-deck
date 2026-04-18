@@ -9,6 +9,7 @@ from typing import Optional
 
 from aiohttp import web
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+import email_alerts as alerts
 
 logging.basicConfig(level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S")
@@ -229,6 +230,7 @@ class BrowserManager:
 class XDeckApp:
     def __init__(self):
         self.bm = BrowserManager()
+        self.alert_mgr = alerts.AlertManager()
         self.subscriptions: dict[int, dict] = {}
         self.results:       dict[int, list] = {}
         self.clients:       set[web.WebSocketResponse] = set()
@@ -299,6 +301,11 @@ class XDeckApp:
                 "tweets":tweets,"updated":ts,"count":len(tweets)})
             await self.broadcast({"type":"status","column":col_id,"status":"ok"})
             log.info(f"Col {col_id+1}: ✅ {len(tweets)} tweets")
+            # ── Alertas por e-mail ─────────────────────────────────────────
+            col_name = cfg.get("name", f"Coluna {col_id+1}")
+            asyncio.create_task(
+                self.alert_mgr.process_column(col_id, col_name, tweets)
+            )
         except Exception as e:
             log.error(f"Col {col_id+1}: ❌ {e}")
             await self.broadcast({"type":"status","column":col_id,

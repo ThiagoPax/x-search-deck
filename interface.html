@@ -38,7 +38,17 @@ button.tb-primary:hover { opacity:.88; }
 .col-head { background:var(--s1); border-bottom:.5px solid var(--border); padding:7px 8px 6px; display:flex; flex-direction:column; gap:5px; flex-shrink:0; }
 .ch-top { display:flex; align-items:flex-start; gap:5px; }
 .col-n { font-size:10px; color:#444; font-weight:800; min-width:14px; padding-top:5px; }
-.col-head textarea { flex:1; min-height:48px; max-height:90px; resize:none; overflow:auto; background:var(--bg); border:.5px solid var(--border); border-radius:7px; color:var(--text); padding:5px 8px; font-size:11px; line-height:1.5; font-family:"SF Mono","Cascadia Code","Consolas",monospace; outline:none; transition:border-color .15s; }
+.ch-name-wrap { flex:1; display:flex; flex-direction:column; gap:4px; }
+/* ── Nome editável por coluna ── */
+.col-name-input {
+  width:100%; background:transparent; border:none;
+  border-bottom:.5px solid #2a2a2a; color:var(--text);
+  font-size:11px; font-weight:700; padding:1px 4px 3px;
+  outline:none; letter-spacing:.3px; transition:border-color .15s;
+}
+.col-name-input:focus { border-bottom-color:var(--blue); }
+.col-name-input::placeholder { color:#333; font-weight:400; }
+.col-head textarea { width:100%; min-height:48px; max-height:90px; resize:none; overflow:auto; background:var(--bg); border:.5px solid var(--border); border-radius:7px; color:var(--text); padding:5px 8px; font-size:11px; line-height:1.5; font-family:"SF Mono","Cascadia Code","Consolas",monospace; outline:none; transition:border-color .15s; }
 .col-head textarea:focus { border-color:var(--blue); }
 .col-head textarea::placeholder { color:#333; }
 .ch-bot { display:flex; align-items:center; gap:5px; }
@@ -51,6 +61,14 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 .sdot.error   { background:var(--red); }
 .rbtn { background:none; border:none; color:#3a3f44; cursor:pointer; font-size:13px; padding:1px 3px; transition:color .15s; flex-shrink:0; }
 .rbtn:hover { color:var(--blue); }
+/* ── Badge de novos tweets ── */
+.new-badge {
+  min-width:16px; height:16px; background:var(--blue); color:#fff;
+  font-size:10px; font-weight:800; border-radius:8px; padding:0 4px;
+  display:none; align-items:center; justify-content:center;
+  cursor:pointer; flex-shrink:0; transition:transform .15s;
+}
+.new-badge:hover { transform:scale(1.15); }
 
 /* Col body */
 .col-body { flex:1; overflow-y:auto; overflow-x:hidden; background:var(--bg); }
@@ -73,7 +91,8 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 .tw-name { font-size:12px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.3; }
 .tw-handle { font-size:11px; color:var(--muted); line-height:1.3; }
 .tw-time { font-size:10px; color:var(--muted); flex-shrink:0; padding-top:1px; }
-.tw-text { font-size:12.5px; line-height:1.55; color:var(--text); margin-bottom:7px; word-break:break-word; display:-webkit-box; -webkit-line-clamp:6; -webkit-box-orient:vertical; overflow:hidden; }
+/* ── Tweet completo (sem clamp) ── */
+.tw-text { font-size:12.5px; line-height:1.55; color:var(--text); margin-bottom:7px; word-break:break-word; }
 .tw-metrics { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 .tw-m { display:flex; align-items:center; gap:3px; font-size:11px; color:#555; }
 
@@ -120,8 +139,6 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 
 <script>
 // ── Detecta URL do WebSocket automaticamente ──────────────
-// Se abrindo pelo Render: wss://seu-app.onrender.com/ws
-// Se local:               ws://localhost:8765/ws
 function getWsUrl() {
   const loc = window.location;
   if (loc.hostname === 'localhost' || loc.hostname === '127.0.0.1') {
@@ -159,12 +176,41 @@ lang:pt`},
 let numCols = 6, ws = null, reconnTimer = null, reconnAttempts = 0;
 let seenUrls = {}, colResults = {};
 
+// ── localStorage — persistência ───────────────────────────
+function saveState() {
+  const cols = [];
+  for (let i = 0; i < numCols; i++) {
+    cols.push({
+      name:  document.getElementById(`colname${i}`)?.value ?? '',
+      query: document.getElementById(`q${i}`)?.value ?? '',
+      sort:  document.getElementById(`sort${i}`)?.value ?? 'live',
+    });
+  }
+  try {
+    localStorage.setItem('xdeck_columns', JSON.stringify(cols));
+    localStorage.setItem('xdeck_numcols', String(numCols));
+  } catch(_) {}
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem('xdeck_columns');
+    const nc  = localStorage.getItem('xdeck_numcols');
+    if (!raw) return null;
+    return { numCols: nc ? parseInt(nc, 10) : null, columns: JSON.parse(raw) };
+  } catch(_) { return null; }
+}
+
 // ── Grid ──────────────────────────────────────────────────
-function buildGrid() {
+function buildGrid(savedState) {
   const grid = document.getElementById('grid');
   grid.innerHTML = '';
   for (let i = 0; i < numCols; i++) {
-    const p = PRESETS[i] || { label:`Coluna ${i+1}`, query:'', sort:'live' };
+    const p    = PRESETS[i] || { label:`Coluna ${i+1}`, query:'', sort:'live' };
+    const sv   = savedState?.columns?.[i];
+    const name  = sv?.name  ?? p.label ?? '';
+    const query = sv?.query ?? p.query ?? '';
+    const sort  = sv?.sort  ?? p.sort  ?? 'live';
     if (!seenUrls[i]) seenUrls[i] = new Set();
     const col = document.createElement('div');
     col.className = 'col'; col.id = `col-${i}`;
@@ -172,15 +218,22 @@ function buildGrid() {
       <div class="col-head">
         <div class="ch-top">
           <span class="col-n">${i+1}</span>
-          <textarea id="q${i}" spellcheck="false" placeholder="Query...">${esc(p.query)}</textarea>
+          <div class="ch-name-wrap">
+            <input type="text" id="colname${i}" class="col-name-input"
+                   placeholder="Nome da coluna…"
+                   value="${esc(name)}"
+                   oninput="saveState()" />
+            <textarea id="q${i}" spellcheck="false" placeholder="Query...">${esc(query)}</textarea>
+          </div>
         </div>
         <div class="ch-bot">
-          <select class="sort-sel" id="sort${i}">
-            <option value="live" ${p.sort==='live'?'selected':''}>Recentes</option>
-            <option value="top"  ${p.sort==='top'?'selected':''}>Top</option>
+          <select class="sort-sel" id="sort${i}" onchange="saveState()">
+            <option value="live" ${sort==='live'?'selected':''}>Recentes</option>
+            <option value="top"  ${sort==='top'?'selected':''}>Top</option>
           </select>
           <div class="col-meta" id="meta${i}">—</div>
           <div class="sdot" id="sdot${i}"></div>
+          <span class="new-badge" id="badge${i}" onclick="clearBadge(event,${i})" title="Novos tweets"></span>
           <button class="rbtn" onclick="refreshOne(${i})" title="Refresh">↺</button>
         </div>
       </div>
@@ -188,13 +241,37 @@ function buildGrid() {
         <div class="col-empty">${xSvg()}<div>Clique em <strong>▶ Iniciar busca</strong></div></div>
       </div>`;
     grid.appendChild(col);
+    document.getElementById(`q${i}`).addEventListener('input', saveState);
     document.getElementById(`q${i}`).addEventListener('keydown', e => {
       if (e.ctrlKey && e.key === 'Enter') subscribeAll();
     });
   }
 }
 
-function setColumns(n) { numCols = n; buildGrid(); subscribeAll(); }
+function setColumns(n) {
+  numCols = n;
+  saveState();
+  buildGrid();
+  subscribeAll();
+}
+
+// ── Badge de novos tweets ─────────────────────────────────
+function incrementBadge(colIdx, count) {
+  if (count <= 0) return;
+  const badge = document.getElementById(`badge${colIdx}`);
+  if (!badge) return;
+  const cur = parseInt(badge.textContent, 10) || 0;
+  badge.textContent = cur + count;
+  badge.style.display = 'inline-flex';
+}
+
+function clearBadge(e, colIdx) {
+  e.stopPropagation();
+  const badge = document.getElementById(`badge${colIdx}`);
+  if (!badge) return;
+  badge.textContent = '0';
+  badge.style.display = 'none';
+}
 
 // ── WebSocket ─────────────────────────────────────────────
 function connect() {
@@ -244,11 +321,13 @@ function subscribeAll() {
   const cols = [];
   for (let i = 0; i < numCols; i++) {
     cols.push({
+      name:  document.getElementById(`colname${i}`)?.value || `Coluna ${i+1}`,
       query: document.getElementById(`q${i}`)?.value || '',
       sort:  document.getElementById(`sort${i}`)?.value || 'live',
     });
   }
   ws.send(JSON.stringify({ type:'subscribe', columns:cols }));
+  saveState();
 }
 
 function refreshOne(idx) {
@@ -284,11 +363,18 @@ function handleResults({ column:col, tweets, updated, count }) {
     return;
   }
   const prev = seenUrls[col] || new Set();
+  let newCount = 0;
   const frag = document.createDocumentFragment();
-  tweets.forEach(t => frag.appendChild(renderTweet(t, t.url && !prev.has(t.url))));
+  tweets.forEach(t => {
+    const isNew = !!(t.url && !prev.has(t.url));
+    if (isNew) newCount++;
+    frag.appendChild(renderTweet(t, isNew));
+  });
   body.innerHTML = '';
   body.appendChild(frag);
   seenUrls[col] = new Set(tweets.map(t=>t.url).filter(Boolean));
+  // Apenas incrementa o badge se a coluna já tinha dados antes (não é a primeira carga)
+  if (prev.size > 0 && newCount > 0) incrementBadge(col, newCount);
 }
 
 // ── Render tweet ──────────────────────────────────────────
@@ -337,8 +423,18 @@ const iLike  = svgI('M16.697 5.5c-1.222-.06-2.679.51-3.89 2.16l-.805 1.09-.806-1
 const iViews = svgI('M8.75 21V3h2v18h-2zM18 21V8.5h2V21h-2zM4 21l.004-10h2L6 21H4zm9.248 0v-7h2v7h-2z');
 function xSvg() { return `<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.741l7.73-8.835L1.254 2.25H8.08l4.258 5.63 5.906-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z"/></svg>`; }
 
-buildGrid();
-connect();
+// ── Init — restaura estado salvo e inicia ─────────────────
+(function init() {
+  const saved = loadState();
+  if (saved?.numCols && saved.numCols >= 2 && saved.numCols <= 6) {
+    numCols = saved.numCols;
+    // Sincroniza o select de colunas
+    const sel = document.getElementById('cols-sel');
+    if (sel) sel.value = String(numCols);
+  }
+  buildGrid(saved);
+  connect();
+})();
 </script>
 </body>
 </html>
