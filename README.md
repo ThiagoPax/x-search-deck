@@ -89,8 +89,13 @@ O estado operacional de envios únicos por janela, como alerta de silêncio e di
 - Use os campos de data por coluna para injetar `since:` e `until:` automaticamente.
 - Marque `sem RT` para adicionar `-filter:retweets` à busca daquela coluna.
 - Clique no nome da coluna para renomear; nomes, queries, ordenação, filtros e número de colunas persistem no navegador.
+- Arraste uma coluna pelo número no cabeçalho para reorganizar o deck. A ordem fica salva em `localStorage` sem migrar ou apagar estados antigos das colunas.
+- Use o seletor `Templates` em cada coluna para aplicar rapidamente uma query padrão ou salva. O botão `★` salva a query atual como template nomeado no navegador.
+- Preencha `keywords` por coluna para destacar termos no texto dos tweets. Se o campo ficar vazio, a interface deriva termos principais da própria busca.
+- Ative `ao vivo` em uma coluna para enfatizar o timestamp e manter a coluna posicionada no topo quando novos resultados chegam.
 - O badge azul na coluna mostra quantos tweets novos chegaram desde o último refresh visualizado.
 - O texto do tweet é exibido completo, sem truncamento visual.
+- Quando a coleta encontra fotos, GIFs ou thumbnails seguras de vídeo no DOM do X, a mídia é exibida inline no card com carregamento preguiçoso pelo navegador.
 
 ## Alertas por E-mail
 
@@ -134,6 +139,8 @@ Limitações conhecidas:
 - as janelas atuais usam horários no mesmo dia; janelas que atravessam meia-noite não são tratadas como um único bloco;
 - alertas agendados dependem do loop de refresh estar ativo com ao menos uma coluna inscrita;
 - após reinício do servidor, o sistema preserva alertas finais e de silêncio já enviados, mas não reconstrói tweets vistos em uma janela antes do reinício.
+- a mídia inline depende dos URLs de imagem/thumbnail presentes no DOM renderizado pelo X; vídeo completo não é baixado nem embutido, e alguns posts podem aparecer apenas com indicador ou sem mídia quando o X não expõe uma thumbnail estável;
+- templates, ordem das colunas, keywords e modo ao vivo são persistidos no navegador via `localStorage`; trocar de navegador/dispositivo não sincroniza esses dados.
 
 ## Deploy no Render
 
@@ -158,6 +165,11 @@ Implementado nesta rodada:
 - alertas por e-mail com configuração editável e persistente;
 - janelas, destinatários, frequência, threshold, spike e preview configuráveis;
 - alerta de silêncio e digest final configuráveis;
+- mídia inline segura para fotos, GIFs e thumbnails disponíveis;
+- drag-and-drop de colunas com persistência no navegador;
+- templates de query salvos e aplicáveis por coluna;
+- destaque de keywords por coluna, com derivação automática da query quando o campo está vazio;
+- modo ao vivo por coluna para acompanhamento contínuo;
 - filtros de data por coluna;
 - opção por coluna para excluir retweets;
 - persistência leve de layout/estado no navegador;
@@ -168,8 +180,7 @@ Implementado nesta rodada:
 Pendências maiores do planejamento:
 
 - adicionar/remover colunas sem limite fixo;
-- drag-and-drop e largura ajustável;
-- templates e histórico de queries;
-- mídia inline, cards de link e thumbnails de vídeo;
-- destaque de keywords;
+- largura ajustável;
+- histórico avançado de queries;
+- cards de link e vídeo completo;
 - resumo/IA editorial, clip para pauta e integrações externas.
