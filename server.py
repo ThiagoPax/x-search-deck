@@ -172,6 +172,32 @@ async def _one(art) -> dict:
     src = await av.get_attribute("src") if av else ""
     t["avatar"] = src.replace("_normal", "_bigger") if src else ""
 
+    try:
+        t["media"] = await art.evaluate("""el => {
+            const out = [];
+            const seen = new Set();
+            const add = (url, type) => {
+                if (!url || seen.has(url)) return;
+                seen.add(url);
+                out.push({url, type});
+            };
+            for (const img of Array.from(el.querySelectorAll('img'))) {
+                const src = img.currentSrc || img.src || '';
+                if (!src || src.includes('profile_images') || src.includes('emoji') || src.includes('hashflags')) continue;
+                if (src.includes('pbs.twimg.com/media/')) add(src, 'photo');
+                else if (src.includes('pbs.twimg.com/tweet_video_thumb/')) add(src, 'gif');
+                else if (src.includes('video_thumb')) add(src, 'video');
+            }
+            if (el.querySelector('video')) {
+                const img = el.querySelector('img[src*="pbs.twimg.com"]');
+                const src = img ? (img.currentSrc || img.src || '') : '';
+                add(src, 'video');
+            }
+            return out.slice(0, 4);
+        }""") or []
+    except Exception:
+        t["media"] = []
+
     for key, tid in [("replies","reply"),("retweets","retweet"),("likes","like")]:
         try:
             v = await art.evaluate(f"""el => {{
