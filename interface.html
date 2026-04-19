@@ -29,9 +29,24 @@ select.tb-sel:hover, button.tb-btn:hover, button.tb-btn.active { border-color:va
 button.tb-primary { background:var(--blue); border:none; border-radius:20px; color:#fff; padding:5px 14px; font-size:11px; font-weight:700; cursor:pointer; transition:opacity .15s; }
 button.tb-primary:hover { opacity:.88; }
 
-/* Grid */
-#grid { display:flex; flex:1; overflow:hidden; }
-.col { flex:1; min-width:0; display:flex; flex-direction:column; border-right:.5px solid var(--border); }
+/* Workspace */
+#workspace { display:flex; flex:1; min-height:0; overflow:hidden; }
+#sidebar { width:168px; flex-shrink:0; border-right:.5px solid var(--border); background:#050505; display:flex; flex-direction:column; }
+.side-head { padding:10px; border-bottom:.5px solid var(--border); display:flex; flex-direction:column; gap:7px; }
+.side-title { display:flex; justify-content:space-between; align-items:center; gap:8px; color:var(--muted); font-size:10px; font-weight:800; text-transform:uppercase; }
+.side-actions { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.side-actions .mini-btn { padding:5px 6px; }
+#page-list { flex:1; overflow:auto; padding:7px; display:flex; flex-direction:column; gap:5px; }
+.page-btn { width:100%; border:.5px solid transparent; background:transparent; color:var(--muted); border-radius:7px; padding:8px; text-align:left; cursor:pointer; font-size:11px; display:flex; flex-direction:column; gap:2px; }
+.page-btn:hover, .page-btn.active { border-color:var(--border); background:var(--s1); color:var(--text); }
+.page-btn span { color:#484d52; font-size:10px; }
+#main { flex:1; min-width:0; display:flex; flex-direction:column; overflow:hidden; }
+#grid-wrap { flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+#grid { --visible-cols:5; display:flex; flex:1; min-height:0; overflow-x:auto; overflow-y:hidden; scroll-behavior:smooth; }
+#grid::-webkit-scrollbar { height:8px; }
+#grid::-webkit-scrollbar-thumb { background:#222; border-radius:8px; }
+.grid-status { flex-shrink:0; min-height:22px; border-top:.5px solid var(--border); color:var(--muted); font-size:10px; padding:5px 10px; display:flex; align-items:center; gap:8px; }
+.col { flex:0 0 calc(100% / var(--visible-cols)); min-width:280px; max-width:440px; display:flex; flex-direction:column; border-right:.5px solid var(--border); }
 .col:last-child { border-right:none; }
 
 /* Col head */
@@ -40,7 +55,7 @@ button.tb-primary:hover { opacity:.88; }
 .col-head.collapsed .collapsible { display:none; }
 .ch-top { display:flex; align-items:flex-start; gap:5px; }
 .col-n { font-size:10px; color:#444; font-weight:800; min-width:14px; padding-top:5px; }
-.col-head textarea { flex:1; min-height:48px; max-height:90px; resize:none; overflow:auto; background:var(--bg); border:.5px solid var(--border); border-radius:7px; color:var(--text); padding:5px 8px; font-size:11px; line-height:1.5; font-family:"SF Mono","Cascadia Code","Consolas",monospace; outline:none; transition:border-color .15s; }
+.col-head textarea { flex:1; min-height:58px; max-height:220px; resize:vertical; overflow:auto; background:var(--bg); border:.5px solid var(--border); border-radius:7px; color:var(--text); padding:6px 8px; font-size:11px; line-height:1.5; font-family:"SF Mono","Cascadia Code","Consolas",monospace; outline:none; transition:border-color .15s; }
 .col-head textarea:focus { border-color:var(--blue); }
 .col-head textarea::placeholder { color:#333; }
 .ch-bot { display:flex; align-items:center; gap:5px; }
@@ -54,11 +69,15 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 .col-filters { display:grid; grid-template-columns:repeat(2,minmax(118px,1fr)); gap:7px; align-items:end; }
 .filter-field { display:flex; flex-direction:column; gap:3px; min-width:0; }
 .filter-field label { color:var(--muted); font-size:9.5px; font-weight:700; }
-.filter-field input[type="date"], .filter-field input[type="number"] { width:100%; min-width:0; background:var(--bg); border:.5px solid var(--border); border-radius:6px; color:var(--text); padding:6px 7px; font-size:11px; outline:none; color-scheme:dark; }
+.filter-field input[type="date"], .filter-field input[type="number"], .filter-field input[type="text"], .filter-field select { width:100%; min-width:0; background:var(--bg); border:.5px solid var(--border); border-radius:6px; color:var(--text); padding:6px 7px; font-size:11px; outline:none; color-scheme:dark; }
+.filter-field.full { grid-column:1 / -1; }
+.filter-field textarea { width:100%; min-height:42px; max-height:140px; resize:vertical; background:var(--bg); border:.5px solid var(--border); border-radius:6px; color:var(--text); padding:6px 7px; font-size:11px; line-height:1.4; outline:none; }
 .filter-toggles { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:8px 10px; align-items:center; padding-top:1px; }
 .rt-toggle { display:flex; align-items:center; gap:4px; color:var(--muted); font-size:10.5px; white-space:nowrap; }
 .rt-toggle input { accent-color:var(--blue); }
 .col-tools { display:flex; align-items:center; gap:5px; }
+.history-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px; align-items:center; }
+.history-row select { min-width:0; background:var(--bg); border:.5px solid var(--border); border-radius:6px; color:var(--muted); padding:5px 7px; font-size:10px; outline:none; }
 .summary-box { display:none; position:relative; background:rgba(29,155,240,.07); border:.5px solid rgba(29,155,240,.25); border-radius:8px; padding:8px 25px 8px 9px; color:var(--text); font-size:11.5px; line-height:1.55; white-space:pre-wrap; }
 .summary-box.show { display:block; }
 .summary-close { position:absolute; right:6px; top:5px; background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:11px; padding:2px 4px; }
@@ -147,6 +166,10 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 .window-row label { display:flex; align-items:center; justify-content:center; gap:4px; color:var(--muted); font-size:11px; }
 .modal-actions { display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:14px; }
 .modal-status { margin-right:auto; color:var(--muted); font-size:11px; }
+.test-status { grid-column:1 / -1; border:.5px solid var(--border); border-radius:8px; padding:8px 9px; color:var(--muted); font-size:11px; line-height:1.45; display:none; }
+.test-status.show { display:block; }
+.test-status.ok { border-color:rgba(0,186,124,.35); color:var(--green); background:rgba(0,186,124,.06); }
+.test-status.err { border-color:rgba(244,33,46,.35); color:#ff8a92; background:rgba(244,33,46,.06); }
 #queue-drawer { position:fixed; right:0; top:0; bottom:0; width:min(430px, 100vw); background:var(--s1); border-left:.5px solid var(--border); z-index:1001; transform:translateX(100%); transition:transform .18s ease; display:flex; flex-direction:column; box-shadow:-18px 0 50px rgba(0,0,0,.45); }
 #queue-drawer.show { transform:translateX(0); }
 .queue-head { display:flex; align-items:center; gap:8px; padding:12px; border-bottom:.5px solid var(--border); }
@@ -160,6 +183,11 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 .queue-actions { display:flex; align-items:center; gap:7px; margin-top:7px; flex-wrap:wrap; }
 .queue-foot { border-top:.5px solid var(--border); padding:10px; display:flex; align-items:center; gap:8px; }
 @media (max-width: 720px) {
+  #workspace { flex-direction:column; }
+  #sidebar { width:100%; max-height:138px; border-right:none; border-bottom:.5px solid var(--border); }
+  #page-list { flex-direction:row; overflow-x:auto; }
+  .page-btn { min-width:132px; }
+  .col { flex-basis:100%; max-width:none; }
   .alert-grid, .window-row, .col-filters { grid-template-columns:1fr; }
   .field.full, .windows { grid-column:auto; }
   .template-row { grid-template-columns:1fr 1fr 1fr; }
@@ -174,13 +202,7 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
   <div id="conn-dot" class="err"></div>
   <div id="conn-label">conectando...</div>
   <div class="tbr">
-    <select class="tb-sel" id="cols-sel" onchange="setColumns(+this.value)">
-      <option value="2">2 colunas</option>
-      <option value="3">3 colunas</option>
-      <option value="4">4 colunas</option>
-      <option value="5">5 colunas</option>
-      <option value="6" selected>6 colunas</option>
-    </select>
+    <button class="tb-btn" onclick="addColumn()">+ Coluna</button>
     <button class="tb-btn" onclick="subscribeAll()">↺ Atualizar</button>
     <button class="tb-btn" id="live-btn" onclick="toggleLiveMode()" title="Mantém as colunas inscritas no auto-refresh do backend">Ao vivo</button>
     <button class="tb-btn" onclick="openQueue()">Fila</button>
@@ -189,7 +211,26 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
   </div>
 </div>
 
-<div id="grid"></div>
+<div id="workspace">
+  <aside id="sidebar">
+    <div class="side-head">
+      <div class="side-title">Páginas <span id="page-count"></span></div>
+      <div class="side-actions">
+        <button class="mini-btn" onclick="addPage()">Nova</button>
+        <button class="mini-btn" onclick="renamePage()">Renomear</button>
+        <button class="mini-btn" onclick="deletePage()">Excluir</button>
+        <button class="mini-btn" onclick="addColumn()">+ Coluna</button>
+      </div>
+    </div>
+    <div id="page-list"></div>
+  </aside>
+  <main id="main">
+    <div id="grid-wrap">
+      <div id="grid"></div>
+      <div class="grid-status" id="grid-status"></div>
+    </div>
+  </main>
+</div>
 
 <div id="overlay">
   <div class="ov-box">
@@ -256,9 +297,11 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
         <div class="field"><label>Janelas de envio</label></div>
         <div id="alert-windows"></div>
       </div>
+      <div class="test-status" id="alert-test-status"></div>
     </div>
     <div class="modal-actions">
       <span class="modal-status" id="alert-status"></span>
+      <button class="tb-btn" id="alert-test-btn" onclick="sendTestEmail()">Enviar e-mail teste</button>
       <button class="tb-btn" onclick="sendAlertPreview()">Enviar preview</button>
       <button class="tb-primary" onclick="saveAlertConfig()">Salvar alertas</button>
     </div>
@@ -316,107 +359,344 @@ lang:pt`},
 ];
 
 // ── Estado ────────────────────────────────────────────────
-let numCols = +(localStorage.getItem('xdeck_num_cols') || 6), ws = null, reconnTimer = null, reconnAttempts = 0;
-let seenUrls = {}, colResults = {};
+const DECK_STATE_KEY = 'xdeck_state_v2';
+const QUERY_HISTORY_KEY = 'xdeck_query_history';
+let deckState = loadDeckState(), ws = null, reconnTimer = null, reconnAttempts = 0;
+let seenUrls = {}, colResults = {}, hiddenUrls = {};
 let alertConfig = null;
 let editorialQueue = loadQueue();
 let liveMode = localStorage.getItem('xdeck_live_mode') !== '0';
 
 // ── Grid ──────────────────────────────────────────────────
+function newId(prefix) {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function defaultColumn(idx = 0) {
+  const p = PRESETS[idx] || { label:`Coluna ${idx + 1}`, query:'', sort:'live' };
+  return {
+    id:newId('col'),
+    name:p.label || `Coluna ${idx + 1}`,
+    query:p.query || '',
+    sort:p.sort || 'live',
+    date_from:'',
+    date_to:'',
+    min_faves:'',
+    min_replies:'',
+    min_retweets:'',
+    exclude_rt:false,
+    filter_media:false,
+    filter_verified:false,
+    language:'',
+    muted:'',
+    collapsed:false,
+  };
+}
+
+function normalizeColumn(raw, idx = 0) {
+  const base = defaultColumn(idx);
+  return {
+    ...base,
+    ...raw,
+    id:String(raw?.id || base.id),
+    name:String(raw?.name || base.name),
+    query:String(raw?.query ?? base.query),
+    sort:['live','top'].includes(raw?.sort) ? raw.sort : base.sort,
+    exclude_rt:!!raw?.exclude_rt,
+    filter_media:!!raw?.filter_media,
+    filter_verified:!!raw?.filter_verified,
+    collapsed:!!raw?.collapsed,
+  };
+}
+
+function legacyValue(idx, field) {
+  return localStorage.getItem(`xdeck_col${idx}_${field}`);
+}
+
+function migrateLegacyState() {
+  const legacyCount = +(localStorage.getItem('xdeck_num_cols') || 6);
+  const count = Math.max(1, legacyCount || PRESETS.length || 1);
+  const columns = [];
+  for (let i = 0; i < count; i++) {
+    const p = PRESETS[i] || { label:`Coluna ${i + 1}`, query:'', sort:'live' };
+    columns.push(normalizeColumn({
+      id:`legacy_col_${i + 1}`,
+      name:legacyValue(i, 'name') || p.label || `Coluna ${i + 1}`,
+      query:legacyValue(i, 'query') ?? p.query ?? '',
+      sort:legacyValue(i, 'sort') || p.sort || 'live',
+      date_from:legacyValue(i, 'date_from') || '',
+      date_to:legacyValue(i, 'date_to') || '',
+      min_faves:legacyValue(i, 'min_faves') || '',
+      min_replies:legacyValue(i, 'min_replies') || '',
+      min_retweets:legacyValue(i, 'min_retweets') || '',
+      exclude_rt:legacyValue(i, 'exclude_rt') === '1',
+      filter_media:legacyValue(i, 'filter_media') === '1',
+      filter_verified:legacyValue(i, 'filter_verified') === '1',
+      collapsed:legacyValue(i, 'collapsed') === '1',
+    }, i));
+  }
+  return {
+    version:2,
+    activePageId:'page_main',
+    pages:[{ id:'page_main', name:'Principal', columns }],
+  };
+}
+
+function loadDeckState() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DECK_STATE_KEY) || 'null');
+    if (raw?.version === 2 && Array.isArray(raw.pages) && raw.pages.length) {
+      raw.pages = raw.pages.map((p, idx) => ({
+        id:String(p.id || `page_${idx + 1}`),
+        name:String(p.name || `Página ${idx + 1}`),
+        columns:Array.isArray(p.columns) ? p.columns.map(normalizeColumn) : [defaultColumn(0)],
+      }));
+      if (!raw.pages.some(p => p.id === raw.activePageId)) raw.activePageId = raw.pages[0].id;
+      return raw;
+    }
+  } catch {}
+  const migrated = migrateLegacyState();
+  localStorage.setItem(DECK_STATE_KEY, JSON.stringify(migrated));
+  return migrated;
+}
+
+function saveDeckState() {
+  localStorage.setItem(DECK_STATE_KEY, JSON.stringify(deckState));
+}
+
+function activePage() {
+  return deckState.pages.find(p => p.id === deckState.activePageId) || deckState.pages[0];
+}
+
+function activeColumns() {
+  return activePage().columns;
+}
+
+function getColumn(colId) {
+  return activeColumns().find(c => c.id === String(colId));
+}
+
+function colDom(prefix, colId) {
+  return `${prefix}${String(colId).replace(/[^A-Za-z0-9_-]/g, '_')}`;
+}
+
+function q(s) {
+  return `'${String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+}
+
 function buildGrid() {
   const grid = document.getElementById('grid');
+  renderPages();
   grid.innerHTML = '';
-  for (let i = 0; i < numCols; i++) {
-    const p = PRESETS[i] || { label:`Coluna ${i+1}`, query:'', sort:'live' };
-    if (!seenUrls[i]) seenUrls[i] = new Set();
+  const cols = activeColumns();
+  grid.style.setProperty('--visible-cols', String(Math.max(1, Math.min(5, cols.length || 1))));
+  cols.forEach((cfg, i) => {
+    const colId = cfg.id;
+    if (!seenUrls[colId]) seenUrls[colId] = new Set();
     const col = document.createElement('div');
-    col.className = 'col'; col.id = `col-${i}`;
-    const savedName = loadColName(i) || p.label || `Coluna ${i+1}`;
-    const collapsed = loadColCollapsed(i);
+    col.className = 'col'; col.id = colDom('col-', colId);
+    const collapsed = !!cfg.collapsed;
     col.innerHTML = `
-      <div class="col-head ${collapsed ? 'collapsed' : ''}" id="head${i}">
+      <div class="col-head ${collapsed ? 'collapsed' : ''}" id="${colDom('head', colId)}">
         <div class="col-name-wrap">
-          <button class="drag-handle" draggable="true" data-col="${i}" title="Arrastar coluna">⋮⋮</button>
-          <input class="col-name" id="colname${i}" value="${esc(savedName)}" placeholder="Nome da coluna" maxlength="40">
-          <span class="col-badge" id="badge${i}"></span>
-          <button class="collapse-btn" id="collapse${i}" onclick="toggleColumnTop(${i})" title="${collapsed ? 'Expandir topo' : 'Recolher topo'}">${collapsed ? '+' : '-'}</button>
+          <button class="drag-handle" draggable="true" data-col="${escAttr(colId)}" title="Arrastar coluna">⋮⋮</button>
+          <input class="col-name" id="${colDom('colname', colId)}" value="${esc(cfg.name)}" placeholder="Nome da coluna" maxlength="40">
+          <span class="col-badge" id="${colDom('badge', colId)}"></span>
+          <button class="collapse-btn" id="${colDom('collapse', colId)}" onclick="toggleColumnTop(${q(colId)})" title="${collapsed ? 'Expandir topo' : 'Recolher topo'}">${collapsed ? '+' : '-'}</button>
         </div>
         <div class="ch-top collapsible">
           <span class="col-n">${i+1}</span>
-          <textarea id="q${i}" spellcheck="false" placeholder="Query...">${esc(loadColQuery(i) ?? p.query)}</textarea>
+          <textarea id="${colDom('q', colId)}" spellcheck="false" placeholder="Query...">${esc(cfg.query)}</textarea>
         </div>
         <div class="ch-bot collapsible">
-          <select class="sort-sel" id="sort${i}">
-            <option value="live" ${(loadColSort(i)||p.sort)==='live'?'selected':''}>Recentes · X live</option>
-            <option value="top"  ${(loadColSort(i)||p.sort)==='top'?'selected':''}>Top · X top</option>
+          <select class="sort-sel" id="${colDom('sort', colId)}">
+            <option value="live" ${cfg.sort==='live'?'selected':''}>Recentes · X live</option>
+            <option value="top"  ${cfg.sort==='top'?'selected':''}>Top · X top</option>
           </select>
-          <div class="col-meta" id="meta${i}">—</div>
+          <div class="col-meta" id="${colDom('meta', colId)}">—</div>
           <div class="col-tools">
-            <button class="rbtn" onclick="summarizeColumn(${i})" title="Resumo IA">IA</button>
+            <button class="rbtn" onclick="summarizeColumn(${q(colId)})" title="Resumo IA">IA</button>
+            <button class="rbtn" onclick="clearColumnResults(${q(colId)})" title="Limpar resultados e monitorar só novos">Limpar</button>
+            <button class="rbtn" onclick="removeColumn(${q(colId)})" title="Remover coluna">×</button>
           </div>
-          <div class="sdot" id="sdot${i}"></div>
-          <button class="rbtn" onclick="refreshOne(${i})" title="Refresh">↺</button>
+          <div class="sdot" id="${colDom('sdot', colId)}"></div>
+          <button class="rbtn" onclick="refreshOne(${q(colId)})" title="Refresh">↺</button>
         </div>
-        <div class="summary-box collapsible" id="summarybox${i}">
-          <button class="summary-close" onclick="closeSummary(${i})" title="Fechar resumo IA">X</button>
-          <div id="summary${i}"></div>
+        <div class="summary-box collapsible" id="${colDom('summarybox', colId)}">
+          <button class="summary-close" onclick="closeSummary(${q(colId)})" title="Fechar resumo IA">X</button>
+          <div id="${colDom('summary', colId)}"></div>
         </div>
         <div class="template-row collapsible">
-          <select id="tmpl${i}" title="Templates de query salvos">${templateOptions()}</select>
-          <button class="mini-btn" onclick="applyQueryTemplate(${i})" title="Aplicar template nesta coluna">Aplicar</button>
-          <button class="mini-btn" onclick="saveQueryTemplate(${i})" title="Salvar query atual como template">Salvar</button>
-          <button class="mini-btn" onclick="deleteQueryTemplate(${i})" title="Excluir template selecionado">Excluir</button>
+          <select id="${colDom('tmpl', colId)}" title="Templates de query salvos">${templateOptions()}</select>
+          <button class="mini-btn" onclick="applyQueryTemplate(${q(colId)})" title="Aplicar template nesta coluna">Aplicar</button>
+          <button class="mini-btn" onclick="saveQueryTemplate(${q(colId)})" title="Salvar query atual como template">Salvar</button>
+          <button class="mini-btn" onclick="deleteQueryTemplate(${q(colId)})" title="Excluir template selecionado">Excluir</button>
+        </div>
+        <div class="history-row collapsible">
+          <select id="${colDom('hist', colId)}" title="Histórico recente de queries">${historyOptions()}</select>
+          <button class="mini-btn" onclick="applyQueryHistory(${q(colId)})" title="Reaplicar busca do histórico">Reaplicar</button>
         </div>
         <div class="col-filters collapsible">
-          <div class="filter-field"><label for="from${i}">Desde</label><input type="date" id="from${i}" value="${esc(loadColDateFrom(i) || '')}" title="Desde"></div>
-          <div class="filter-field"><label for="to${i}">Até</label><input type="date" id="to${i}" value="${esc(loadColDateTo(i) || '')}" title="Até"></div>
-          <div class="filter-field"><label for="minf${i}">Likes mínimos</label><input type="number" id="minf${i}" min="0" value="${esc(loadColMinFaves(i) || '')}" placeholder="0" title="Mínimo de likes"></div>
-          <div class="filter-field"><label for="minrep${i}">Replies mínimos</label><input type="number" id="minrep${i}" min="0" value="${esc(loadColMinReplies(i) || '')}" placeholder="0" title="Mínimo de replies"></div>
-          <div class="filter-field"><label for="minrt${i}">RTs mínimos</label><input type="number" id="minrt${i}" min="0" value="${esc(loadColMinRetweets(i) || '')}" placeholder="0" title="Mínimo de retweets"></div>
+          <div class="filter-field"><label for="${colDom('from', colId)}">Desde</label><input type="date" id="${colDom('from', colId)}" value="${esc(cfg.date_from || '')}" title="Desde"></div>
+          <div class="filter-field"><label for="${colDom('to', colId)}">Até</label><input type="date" id="${colDom('to', colId)}" value="${esc(cfg.date_to || '')}" title="Até"></div>
+          <div class="filter-field"><label for="${colDom('minf', colId)}">Likes mínimos</label><input type="number" id="${colDom('minf', colId)}" min="0" value="${esc(cfg.min_faves || '')}" placeholder="0" title="Mínimo de likes"></div>
+          <div class="filter-field"><label for="${colDom('minrep', colId)}">Replies mínimos</label><input type="number" id="${colDom('minrep', colId)}" min="0" value="${esc(cfg.min_replies || '')}" placeholder="0" title="Mínimo de replies"></div>
+          <div class="filter-field"><label for="${colDom('minrt', colId)}">RTs mínimos</label><input type="number" id="${colDom('minrt', colId)}" min="0" value="${esc(cfg.min_retweets || '')}" placeholder="0" title="Mínimo de retweets"></div>
+          <div class="filter-field"><label for="${colDom('lang', colId)}">Idioma</label><select id="${colDom('lang', colId)}" title="Filtro lang: por coluna">
+            <option value="" ${!cfg.language ? 'selected' : ''}>Manual</option>
+            <option value="pt" ${cfg.language === 'pt' ? 'selected' : ''}>Português</option>
+            <option value="en" ${cfg.language === 'en' ? 'selected' : ''}>Inglês</option>
+            <option value="es" ${cfg.language === 'es' ? 'selected' : ''}>Espanhol</option>
+            <option value="fr" ${cfg.language === 'fr' ? 'selected' : ''}>Francês</option>
+          </select></div>
+          <div class="filter-field full"><label for="${colDom('muted', colId)}">Silenciar termos/contas</label><textarea id="${colDom('muted', colId)}" placeholder='palavra, "expressão", @conta, -from:conta'>${esc(cfg.muted || '')}</textarea></div>
           <div class="filter-toggles">
-            <label class="rt-toggle" title="Excluir retweets"><input type="checkbox" id="nort${i}" ${loadColExcludeRt(i) ? 'checked' : ''}> sem RT</label>
-            <label class="rt-toggle" title="Exigir mídia"><input type="checkbox" id="media${i}" ${loadColFilterMedia(i) ? 'checked' : ''}> mídia</label>
-            <label class="rt-toggle" title="Exigir conta verificada"><input type="checkbox" id="verified${i}" ${loadColFilterVerified(i) ? 'checked' : ''}> verificado</label>
+            <label class="rt-toggle" title="Excluir retweets"><input type="checkbox" id="${colDom('nort', colId)}" ${cfg.exclude_rt ? 'checked' : ''}> sem RT</label>
+            <label class="rt-toggle" title="Exigir mídia"><input type="checkbox" id="${colDom('media', colId)}" ${cfg.filter_media ? 'checked' : ''}> mídia</label>
+            <label class="rt-toggle" title="Exigir conta verificada"><input type="checkbox" id="${colDom('verified', colId)}" ${cfg.filter_verified ? 'checked' : ''}> verificado</label>
           </div>
         </div>
       </div>
-      <div class="col-body" id="body${i}">
+      <div class="col-body" id="${colDom('body', colId)}">
         <div class="col-empty">${xSvg()}<div>Clique em <strong>▶ Iniciar busca</strong></div></div>
       </div>`;
     grid.appendChild(col);
-    const qEl = document.getElementById(`q${i}`);
+    const qEl = document.getElementById(colDom('q', colId));
     qEl.addEventListener('keydown', e => {
       if (e.ctrlKey && e.key === 'Enter') subscribeAll();
     });
-    qEl.addEventListener('input', () => saveColQuery(i, qEl.value));
-    document.getElementById(`sort${i}`).addEventListener('change', function() { saveColSort(i, this.value); });
-    document.getElementById(`colname${i}`).addEventListener('input', function() { saveColName(i, this.value); });
-    document.getElementById(`from${i}`).addEventListener('change', function() { saveColDateFrom(i, this.value); });
-    document.getElementById(`to${i}`).addEventListener('change', function() { saveColDateTo(i, this.value); });
-    document.getElementById(`minf${i}`).addEventListener('input', function() { saveColMinFaves(i, this.value); });
-    document.getElementById(`minrep${i}`).addEventListener('input', function() { saveColMinReplies(i, this.value); });
-    document.getElementById(`minrt${i}`).addEventListener('input', function() { saveColMinRetweets(i, this.value); });
-    document.getElementById(`nort${i}`).addEventListener('change', function() { saveColExcludeRt(i, this.checked); });
-    document.getElementById(`media${i}`).addEventListener('change', function() { saveColFilterMedia(i, this.checked); });
-    document.getElementById(`verified${i}`).addEventListener('change', function() { saveColFilterVerified(i, this.checked); });
-    // Clear badge when column body is clicked
-    document.getElementById(`body${i}`).addEventListener('click', () => clearBadge(i), { capture: true });
-    setupColumnDrag(col, i);
-  }
+    qEl.addEventListener('input', () => saveColumnField(colId, 'query', qEl.value));
+    bindColumnField(colId, 'sort', 'sort', 'change');
+    bindColumnField(colId, 'colname', 'name', 'input');
+    bindColumnField(colId, 'from', 'date_from', 'change');
+    bindColumnField(colId, 'to', 'date_to', 'change');
+    bindColumnField(colId, 'minf', 'min_faves', 'input');
+    bindColumnField(colId, 'minrep', 'min_replies', 'input');
+    bindColumnField(colId, 'minrt', 'min_retweets', 'input');
+    bindColumnField(colId, 'lang', 'language', 'change');
+    bindColumnField(colId, 'muted', 'muted', 'input');
+    bindColumnCheck(colId, 'nort', 'exclude_rt');
+    bindColumnCheck(colId, 'media', 'filter_media');
+    bindColumnCheck(colId, 'verified', 'filter_verified');
+    document.getElementById(colDom('body', colId)).addEventListener('click', () => clearBadge(colId), { capture: true });
+    setupColumnDrag(col, colId);
+  });
+  updateGridStatus();
 }
 
-function setColumns(n) {
-  numCols = n;
-  localStorage.setItem('xdeck_num_cols', String(n));
+function bindColumnField(colId, prefix, field, eventName) {
+  const el = document.getElementById(colDom(prefix, colId));
+  if (el) el.addEventListener(eventName, function() { saveColumnField(colId, field, this.value); });
+}
+
+function bindColumnCheck(colId, prefix, field) {
+  const el = document.getElementById(colDom(prefix, colId));
+  if (el) el.addEventListener('change', function() { saveColumnField(colId, field, this.checked); });
+}
+
+function saveColumnField(colId, field, value) {
+  const col = getColumn(colId);
+  if (!col) return;
+  col[field] = value;
+  saveDeckState();
+}
+
+function addColumn() {
+  const cols = activeColumns();
+  cols.push(defaultColumn(cols.length));
+  saveDeckState();
   buildGrid();
-  subscribeAll();
+  updateGridStatus();
 }
 
-function setupColumnDrag(colEl, colIdx) {
+function removeColumn(colId) {
+  const page = activePage();
+  if (page.columns.length <= 1) {
+    alert('A página precisa manter ao menos uma coluna.');
+    return;
+  }
+  const col = page.columns.find(c => c.id === String(colId));
+  if (!col || !confirm(`Remover a coluna "${col.name}"?`)) return;
+  page.columns = page.columns.filter(c => c.id !== String(colId));
+  delete colResults[colId];
+  delete seenUrls[colId];
+  delete hiddenUrls[colId];
+  saveDeckState();
+  buildGrid();
+  if (liveMode) subscribeAll({ refresh:false });
+}
+
+function renderPages() {
+  const list = document.getElementById('page-list');
+  const count = document.getElementById('page-count');
+  if (!list) return;
+  list.innerHTML = '';
+  if (count) count.textContent = String(deckState.pages.length);
+  deckState.pages.forEach(p => {
+    const btn = document.createElement('button');
+    btn.className = 'page-btn' + (p.id === deckState.activePageId ? ' active' : '');
+    btn.onclick = () => switchPage(p.id);
+    btn.innerHTML = `${esc(p.name)}<span>${p.columns.length} coluna${p.columns.length === 1 ? '' : 's'}</span>`;
+    list.appendChild(btn);
+  });
+}
+
+function addPage() {
+  const name = prompt('Nome da nova página:', `Página ${deckState.pages.length + 1}`);
+  if (!name) return;
+  const page = { id:newId('page'), name:name.trim() || `Página ${deckState.pages.length + 1}`, columns:[defaultColumn(0)] };
+  deckState.pages.push(page);
+  deckState.activePageId = page.id;
+  saveDeckState();
+  buildGrid();
+  if (liveMode) subscribeAll({ refresh:false });
+}
+
+function renamePage() {
+  const page = activePage();
+  const name = prompt('Novo nome da página:', page.name);
+  if (!name) return;
+  page.name = name.trim() || page.name;
+  saveDeckState();
+  renderPages();
+}
+
+function deletePage() {
+  if (deckState.pages.length <= 1) {
+    alert('Mantenha ao menos uma página.');
+    return;
+  }
+  const page = activePage();
+  if (!confirm(`Excluir a página "${page.name}" e suas ${page.columns.length} coluna(s)?`)) return;
+  deckState.pages = deckState.pages.filter(p => p.id !== page.id);
+  deckState.activePageId = deckState.pages[0].id;
+  saveDeckState();
+  buildGrid();
+  if (liveMode) subscribeAll({ refresh:false });
+}
+
+function switchPage(pageId) {
+  if (deckState.activePageId === pageId) return;
+  deckState.activePageId = pageId;
+  saveDeckState();
+  buildGrid();
+  if (liveMode) subscribeAll();
+}
+
+function updateGridStatus() {
+  const el = document.getElementById('grid-status');
+  if (!el) return;
+  const cols = activeColumns();
+  const page = activePage();
+  const visible = Math.min(5, cols.length);
+  el.textContent = `${page.name}: ${cols.length} coluna${cols.length === 1 ? '' : 's'} · até ${visible} visíveis; use rolagem horizontal para as demais.`;
+}
+
+function setupColumnDrag(colEl, colId) {
   const handle = colEl.querySelector('.drag-handle');
   if (!handle) return;
   handle.addEventListener('dragstart', ev => {
-    ev.dataTransfer.setData('text/plain', String(colIdx));
+    ev.dataTransfer.setData('text/plain', String(colId));
     ev.dataTransfer.effectAllowed = 'move';
   });
   colEl.addEventListener('dragover', ev => {
@@ -427,29 +707,22 @@ function setupColumnDrag(colEl, colIdx) {
   colEl.addEventListener('drop', ev => {
     ev.preventDefault();
     colEl.classList.remove('drag-over');
-    const from = +ev.dataTransfer.getData('text/plain');
-    if (!Number.isInteger(from) || from === colIdx) return;
-    moveColumnState(from, colIdx);
+    const from = ev.dataTransfer.getData('text/plain');
+    if (!from || from === colId) return;
+    moveColumnState(from, colId);
     buildGrid();
     subscribeAll();
   });
 }
 
 function moveColumnState(from, to) {
-  const fields = ['query','sort','name','date_from','date_to','min_faves','min_replies','min_retweets','exclude_rt','filter_media','filter_verified'];
-  const snap = [];
-  for (let i = 0; i < numCols; i++) {
-    const item = {};
-    fields.forEach(f => item[f] = localStorage.getItem(lsKey(i, f)));
-    snap.push(item);
-  }
-  const [moved] = snap.splice(from, 1);
-  snap.splice(to, 0, moved);
-  snap.forEach((item, i) => fields.forEach(f => {
-    const key = lsKey(i, f);
-    if (item[f] === null) localStorage.removeItem(key);
-    else localStorage.setItem(key, item[f]);
-  }));
+  const cols = activeColumns();
+  const fromIdx = cols.findIndex(c => c.id === String(from));
+  const toIdx = cols.findIndex(c => c.id === String(to));
+  if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+  const [moved] = cols.splice(fromIdx, 1);
+  cols.splice(toIdx, 0, moved);
+  saveDeckState();
 }
 
 // ── WebSocket ─────────────────────────────────────────────
@@ -500,25 +773,34 @@ function setDot(cls, label) {
 function subscribeAll(options = {}) {
   if (!ws || ws.readyState !== WebSocket.OPEN) { connect(); return; }
   const cols = [];
-  for (let i = 0; i < numCols; i++) {
+  activeColumns().forEach((col, i) => {
+    const colId = col.id;
+    const query = document.getElementById(colDom('q', colId))?.value || '';
+    if (query.trim()) pushQueryHistory(query, col.name || `Coluna ${i + 1}`);
     cols.push({
-      query: document.getElementById(`q${i}`)?.value || '',
-      sort:  document.getElementById(`sort${i}`)?.value || 'live',
-      name:  document.getElementById(`colname${i}`)?.value || `Coluna ${i+1}`,
-      date_from: document.getElementById(`from${i}`)?.value || '',
-      date_to: document.getElementById(`to${i}`)?.value || '',
-      min_faves: document.getElementById(`minf${i}`)?.value || '',
-      min_replies: document.getElementById(`minrep${i}`)?.value || '',
-      min_retweets: document.getElementById(`minrt${i}`)?.value || '',
-      exclude_retweets: !!document.getElementById(`nort${i}`)?.checked,
-      filter_media: !!document.getElementById(`media${i}`)?.checked,
-      filter_verified: !!document.getElementById(`verified${i}`)?.checked,
+      id: colId,
+      query,
+      sort:  document.getElementById(colDom('sort', colId))?.value || 'live',
+      name:  document.getElementById(colDom('colname', colId))?.value || `Coluna ${i+1}`,
+      date_from: document.getElementById(colDom('from', colId))?.value || '',
+      date_to: document.getElementById(colDom('to', colId))?.value || '',
+      min_faves: document.getElementById(colDom('minf', colId))?.value || '',
+      min_replies: document.getElementById(colDom('minrep', colId))?.value || '',
+      min_retweets: document.getElementById(colDom('minrt', colId))?.value || '',
+      exclude_retweets: !!document.getElementById(colDom('nort', colId))?.checked,
+      filter_media: !!document.getElementById(colDom('media', colId))?.checked,
+      filter_verified: !!document.getElementById(colDom('verified', colId))?.checked,
+      language: document.getElementById(colDom('lang', colId))?.value || '',
+      muted: document.getElementById(colDom('muted', colId))?.value || '',
     });
-  }
+  });
   ws.send(JSON.stringify({ type:'subscribe', columns:cols, refresh: options.refresh !== false }));
-  liveMode = true;
-  localStorage.setItem('xdeck_live_mode', '1');
+  if (options.activateLive !== false) {
+    liveMode = true;
+    localStorage.setItem('xdeck_live_mode', '1');
+  }
   updateLiveButton();
+  refreshHistorySelects();
 }
 
 function refreshOne(idx) {
@@ -544,10 +826,10 @@ function updateLiveButton() {
 
 // ── Handlers ──────────────────────────────────────────────
 function handleStatus({ column:col, status, message }) {
-  const dot = document.getElementById(`sdot${col}`);
+  const dot = document.getElementById(colDom('sdot', col));
   if (dot) dot.className = `sdot ${status}`;
   if (status === 'error' && message) {
-    const body = document.getElementById(`body${col}`);
+    const body = document.getElementById(colDom('body', col));
     if (body) {
       body.querySelector('.col-error')?.remove();
       const e = document.createElement('div');
@@ -559,27 +841,31 @@ function handleStatus({ column:col, status, message }) {
 }
 
 function handleResults({ column:col, tweets, updated, count }) {
-  colResults[col] = tweets || [];
-  const meta = document.getElementById(`meta${col}`);
-  if (meta) meta.innerHTML = `<span>${count} tweets</span> · ${updated}`;
-  const body = document.getElementById(`body${col}`);
+  const rawTweets = tweets || [];
+  const hidden = hiddenUrls[col] || new Set();
+  const visibleTweets = rawTweets.filter(t => !t.url || !hidden.has(t.url));
+  colResults[col] = visibleTweets;
+  const meta = document.getElementById(colDom('meta', col));
+  if (meta) meta.innerHTML = `<span>${visibleTweets.length}/${count ?? rawTweets.length} tweets</span> · ${updated}`;
+  const body = document.getElementById(colDom('body', col));
   if (!body) return;
   body.querySelectorAll('.col-error').forEach(e => e.remove());
-  if (!tweets?.length) {
-    body.innerHTML = `<div class="col-empty">${xSvg()}<div>Sem resultados</div></div>`;
+  if (!visibleTweets.length) {
+    body.innerHTML = `<div class="col-empty">${xSvg()}<div>${rawTweets.length ? 'Monitorando apenas novos resultados' : 'Sem resultados'}</div></div>`;
+    seenUrls[col] = new Set(rawTweets.map(t=>t.url).filter(Boolean));
     return;
   }
   const prev = seenUrls[col] || new Set();
   const frag = document.createDocumentFragment();
   let newCount = 0;
-  tweets.forEach(t => {
+  visibleTweets.forEach(t => {
     const isNew = !!(t.url && !prev.has(t.url));
     if (isNew && prev.size > 0) newCount++;
     frag.appendChild(renderTweet(t, isNew, col));
   });
   body.innerHTML = '';
   body.appendChild(frag);
-  seenUrls[col] = new Set(tweets.map(t=>t.url).filter(Boolean));
+  seenUrls[col] = new Set(rawTweets.map(t=>t.url).filter(Boolean));
   if (newCount > 0) showBadge(col, newCount);
 }
 
@@ -597,7 +883,7 @@ function renderTweet(t, isNew, col) {
    .map(([ic,v]) => `<span class="tw-m">${ic}<span>${esc(v)}</span></span>`).join('');
   const viral = viralSignal(t);
   const cred = credibilityScore(t);
-  const query = document.getElementById(`q${col}`)?.value || '';
+  const query = document.getElementById(colDom('q', col))?.value || '';
   const media = renderMedia(t.media || []);
   div.innerHTML = `
     <div class="tw-head">
@@ -729,8 +1015,8 @@ function xSvg() { return `<svg width="22" height="22" viewBox="0 0 24 24" fill="
 
 // ── IA sob demanda ───────────────────────────────────────
 async function summarizeColumn(col) {
-  const box = document.getElementById(`summarybox${col}`);
-  const textEl = document.getElementById(`summary${col}`);
+  const box = document.getElementById(colDom('summarybox', col));
+  const textEl = document.getElementById(colDom('summary', col));
   const tweets = colResults[col] || [];
   if (!box || !textEl) return;
   box.classList.add('show');
@@ -744,7 +1030,7 @@ async function summarizeColumn(col) {
       method:'POST',
       headers:{ 'Content-Type':'application/json' },
       body: JSON.stringify({
-        column_name: document.getElementById(`colname${col}`)?.value || `Coluna ${col + 1}`,
+        column_name: document.getElementById(colDom('colname', col))?.value || getColumn(col)?.name || 'Coluna',
         tweets: tweets.slice(0, 20),
       }),
     });
@@ -756,7 +1042,7 @@ async function summarizeColumn(col) {
 }
 
 function closeSummary(col) {
-  document.getElementById(`summarybox${col}`)?.classList.remove('show');
+  document.getElementById(colDom('summarybox', col))?.classList.remove('show');
 }
 
 function formatSummaryText(text) {
@@ -775,14 +1061,14 @@ function formatSummaryText(text) {
 }
 
 function toggleColumnTop(col) {
-  const head = document.getElementById(`head${col}`);
-  const btn = document.getElementById(`collapse${col}`);
+  const head = document.getElementById(colDom('head', col));
+  const btn = document.getElementById(colDom('collapse', col));
   if (!head || !btn) return;
   const collapsed = !head.classList.contains('collapsed');
   head.classList.toggle('collapsed', collapsed);
   btn.textContent = collapsed ? '+' : '-';
   btn.title = collapsed ? 'Expandir topo' : 'Recolher topo';
-  saveColCollapsed(col, collapsed);
+  saveColumnField(col, 'collapsed', collapsed);
 }
 
 // ── Fila editorial e WhatsApp ────────────────────────────
@@ -924,72 +1210,106 @@ function templateOptions() {
     .join('');
 }
 function refreshTemplateSelects(selected = '') {
-  for (let i = 0; i < numCols; i++) {
-    const sel = document.getElementById(`tmpl${i}`);
+  activeColumns().forEach(col => {
+    const sel = document.getElementById(colDom('tmpl', col.id));
     if (sel) {
       sel.innerHTML = templateOptions();
       sel.value = selected;
     }
-  }
+  });
 }
 function saveQueryTemplate(col) {
-  const q = document.getElementById(`q${col}`)?.value.trim();
+  const q = document.getElementById(colDom('q', col))?.value.trim();
   if (!q) return;
-  const currentName = document.getElementById(`colname${col}`)?.value.trim() || `Template ${new Date().toLocaleString('pt-BR')}`;
+  const currentName = document.getElementById(colDom('colname', col))?.value.trim() || `Template ${new Date().toLocaleString('pt-BR')}`;
   const name = prompt('Nome do template de query:', currentName);
   if (!name) return;
   const items = loadQueryTemplates().filter(t => t.name !== name.trim());
-  items.unshift({ name:name.trim(), query:q, sort:document.getElementById(`sort${col}`)?.value || 'live' });
+  items.unshift({ name:name.trim(), query:q, sort:document.getElementById(colDom('sort', col))?.value || 'live' });
   saveQueryTemplates(items);
   refreshTemplateSelects(name.trim());
 }
 function applyQueryTemplate(col) {
-  const name = document.getElementById(`tmpl${col}`)?.value;
+  const name = document.getElementById(colDom('tmpl', col))?.value;
   if (!name) return;
   const t = loadQueryTemplates().find(item => item.name === name);
   if (!t) return;
-  const q = document.getElementById(`q${col}`);
-  const sort = document.getElementById(`sort${col}`);
-  if (q) { q.value = t.query || ''; saveColQuery(col, q.value); }
-  if (sort && t.sort) { sort.value = t.sort; saveColSort(col, sort.value); }
+  const qEl = document.getElementById(colDom('q', col));
+  const sort = document.getElementById(colDom('sort', col));
+  if (qEl) { qEl.value = t.query || ''; saveColumnField(col, 'query', qEl.value); }
+  if (sort && t.sort) { sort.value = t.sort; saveColumnField(col, 'sort', sort.value); }
 }
 function deleteQueryTemplate(col) {
-  const name = document.getElementById(`tmpl${col}`)?.value;
+  const name = document.getElementById(colDom('tmpl', col))?.value;
   if (!name) return;
   saveQueryTemplates(loadQueryTemplates().filter(t => t.name !== name));
   refreshTemplateSelects();
 }
 
-// ── localStorage helpers ──────────────────────────────────
-function lsKey(col, field) { return `xdeck_col${col}_${field}`; }
-function saveColQuery(col, v) { localStorage.setItem(lsKey(col,'query'), v); }
-function saveColSort(col, v)  { localStorage.setItem(lsKey(col,'sort'),  v); }
-function saveColName(col, v)  { localStorage.setItem(lsKey(col,'name'),  v); }
-function saveColDateFrom(col, v) { localStorage.setItem(lsKey(col,'date_from'), v); }
-function saveColDateTo(col, v)   { localStorage.setItem(lsKey(col,'date_to'), v); }
-function saveColMinFaves(col, v) { localStorage.setItem(lsKey(col,'min_faves'), v); }
-function saveColMinReplies(col, v) { localStorage.setItem(lsKey(col,'min_replies'), v); }
-function saveColMinRetweets(col, v) { localStorage.setItem(lsKey(col,'min_retweets'), v); }
-function saveColExcludeRt(col, v){ localStorage.setItem(lsKey(col,'exclude_rt'), v ? '1' : '0'); }
-function saveColFilterMedia(col, v){ localStorage.setItem(lsKey(col,'filter_media'), v ? '1' : '0'); }
-function saveColFilterVerified(col, v){ localStorage.setItem(lsKey(col,'filter_verified'), v ? '1' : '0'); }
-function saveColCollapsed(col, v){ localStorage.setItem(lsKey(col,'collapsed'), v ? '1' : '0'); }
-function loadColQuery(col)    { return localStorage.getItem(lsKey(col,'query')); }
-function loadColSort(col)     { return localStorage.getItem(lsKey(col,'sort')); }
-function loadColName(col)     { return localStorage.getItem(lsKey(col,'name')); }
-function loadColDateFrom(col) { return localStorage.getItem(lsKey(col,'date_from')); }
-function loadColDateTo(col)   { return localStorage.getItem(lsKey(col,'date_to')); }
-function loadColMinFaves(col) { return localStorage.getItem(lsKey(col,'min_faves')); }
-function loadColMinReplies(col) { return localStorage.getItem(lsKey(col,'min_replies')); }
-function loadColMinRetweets(col) { return localStorage.getItem(lsKey(col,'min_retweets')); }
-function loadColExcludeRt(col){ return localStorage.getItem(lsKey(col,'exclude_rt')) === '1'; }
-function loadColFilterMedia(col){ return localStorage.getItem(lsKey(col,'filter_media')) === '1'; }
-function loadColFilterVerified(col){ return localStorage.getItem(lsKey(col,'filter_verified')) === '1'; }
-function loadColCollapsed(col){ return localStorage.getItem(lsKey(col,'collapsed')) === '1'; }
+// ── Histórico de queries ──────────────────────────────────
+function loadQueryHistory() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(QUERY_HISTORY_KEY) || '[]');
+    return Array.isArray(raw) ? raw.filter(item => item && typeof item.query === 'string') : [];
+  } catch { return []; }
+}
+function saveQueryHistory(items) {
+  localStorage.setItem(QUERY_HISTORY_KEY, JSON.stringify(items.slice(0, 60)));
+}
+function pushQueryHistory(query, label = '') {
+  const qText = String(query || '').trim();
+  if (!qText) return;
+  const items = loadQueryHistory().filter(item => item.query !== qText);
+  items.unshift({ query:qText, label:String(label || '').slice(0, 60), at:new Date().toISOString() });
+  saveQueryHistory(items);
+}
+function historyOptions() {
+  const items = loadQueryHistory();
+  return `<option value="">Histórico de queries...</option>` + items
+    .map((item, idx) => {
+      const label = item.label ? `${item.label} · ${item.query}` : item.query;
+      return `<option value="${idx}">${esc(label.slice(0, 120))}</option>`;
+    })
+    .join('');
+}
+function refreshHistorySelects() {
+  activeColumns().forEach(col => {
+    const sel = document.getElementById(colDom('hist', col.id));
+    if (sel) sel.innerHTML = historyOptions();
+  });
+}
+function applyQueryHistory(col) {
+  const sel = document.getElementById(colDom('hist', col));
+  const idx = +(sel?.value ?? -1);
+  const item = loadQueryHistory()[idx];
+  if (!item) return;
+  const qEl = document.getElementById(colDom('q', col));
+  if (qEl) {
+    qEl.value = item.query || '';
+    saveColumnField(col, 'query', qEl.value);
+  }
+}
+
+function clearColumnResults(col) {
+  const current = colResults[col] || [];
+  const baseline = new Set([
+    ...current.map(t => t.url).filter(Boolean),
+    ...Array.from(seenUrls[col] || []),
+  ]);
+  hiddenUrls[col] = baseline;
+  seenUrls[col] = baseline;
+  colResults[col] = [];
+  clearBadge(col);
+  const body = document.getElementById(colDom('body', col));
+  if (body) body.innerHTML = `<div class="col-empty">${xSvg()}<div>Resultados limpos. Monitorando apenas novos tweets.</div></div>`;
+  const meta = document.getElementById(colDom('meta', col));
+  if (meta) meta.innerHTML = '<span>0 tweets</span> · limpo';
+}
 
 // ── Alert config ─────────────────────────────────────────
 async function openAlertModal() {
   document.getElementById('alert-modal').classList.add('show');
+  renderLastEmailTest();
   await loadAlertConfig();
 }
 function closeAlertModal() {
@@ -1090,21 +1410,71 @@ function setAlertStatus(msg) {
   document.getElementById('alert-status').textContent = msg || '';
 }
 
+function emailTestKey() { return 'xdeck_last_email_test'; }
+function formatEmailTestResult(data) {
+  const dt = data?.timestamp ? new Date(data.timestamp) : new Date();
+  const time = isNaN(dt) ? '' : dt.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+  const recipients = (data?.recipients || []).join(', ') || 'nenhum destinatário';
+  if (data?.ok) return `Teste enviado para ${recipients} às ${time}.`;
+  return `Falha no teste às ${time}: ${data?.message || 'erro desconhecido'} Destinatários: ${recipients}.`;
+}
+function renderEmailTestResult(data) {
+  const box = document.getElementById('alert-test-status');
+  if (!box || !data) return;
+  box.textContent = formatEmailTestResult(data);
+  box.className = `test-status show ${data.ok ? 'ok' : 'err'}`;
+}
+function renderLastEmailTest() {
+  try {
+    const data = JSON.parse(localStorage.getItem(emailTestKey()) || 'null');
+    if (data) renderEmailTestResult(data);
+  } catch {}
+}
+async function sendTestEmail() {
+  const btn = document.getElementById('alert-test-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Enviando...';
+  }
+  setAlertStatus('testando SMTP...');
+  try {
+    const r = await fetch('/api/alerts/test-email', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify(readAlertForm()),
+    });
+    let data;
+    try { data = await r.json(); } catch { data = { ok:false, message:'resposta inválida do backend', recipients:[] }; }
+    data.ok = !!data.ok && r.ok;
+    localStorage.setItem(emailTestKey(), JSON.stringify(data));
+    renderEmailTestResult(data);
+    setAlertStatus(data.ok ? 'e-mail teste enviado' : 'falha no e-mail teste');
+  } catch {
+    const data = { ok:false, message:'erro de rede ao chamar o endpoint de teste', recipients:readAlertForm().recipients, timestamp:new Date().toISOString() };
+    localStorage.setItem(emailTestKey(), JSON.stringify(data));
+    renderEmailTestResult(data);
+    setAlertStatus('falha no e-mail teste');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Enviar e-mail teste';
+    }
+  }
+}
+
 // ── Badge helpers ──────────────────────────────────────────
 function showBadge(col, count) {
-  const b = document.getElementById(`badge${col}`);
+  const b = document.getElementById(colDom('badge', col));
   if (!b) return;
   const cur = parseInt(b.textContent) || 0;
   b.textContent = cur + count;
   b.classList.add('show');
 }
 function clearBadge(col) {
-  const b = document.getElementById(`badge${col}`);
+  const b = document.getElementById(colDom('badge', col));
   if (b) { b.textContent = ''; b.classList.remove('show'); }
 }
 
-const colsSel = document.getElementById('cols-sel');
-if (colsSel) colsSel.value = String(numCols);
 ensureDefaultTemplates();
 buildGrid();
 renderQueue();
