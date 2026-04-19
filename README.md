@@ -7,6 +7,7 @@ Painel de buscas do X com múltiplas colunas, coleta via Playwright autenticado,
 ```
 x-search-deck/
 ├── server.py              Servidor aiohttp, WebSocket e coleta Playwright
+├── openai_service.py      Integração backend com OpenAI Responses API
 ├── email_alerts.py        Configuração e envio dos alertas por e-mail
 ├── interface.html         Interface web das colunas
 ├── exportar_cookies.js    Script para exportar cookies do X
@@ -62,7 +63,9 @@ Opcionais de operação:
 | `PORT` | `8765` | Porta HTTP/WebSocket |
 | `REFRESH_INTERVAL` | `90` | Auto-refresh global em segundos |
 | `STAGGER_SECONDS` | `8` | Pausa entre colunas no refresh |
-| `MAX_TWEETS` | `20` | Máximo de tweets coletados por coluna |
+| `MAX_TWEETS` | `100` | Máximo de tweets coletados por coluna |
+| `MAX_SCROLLS` | `12` | Número máximo de rolagens por coleta |
+| `SCROLL_WAIT` | `1.1` | Pausa em segundos entre rolagens da busca |
 | `PAGE_WAIT` | `7` | Tempo de espera após abrir a busca |
 | `DATA_DIR` | `.data` | Diretório de persistência local |
 | `ALERT_CONFIG_PATH` | `.data/alert_config.json` | Arquivo de configuração dos alertas |
@@ -82,15 +85,63 @@ SMTP para alertas por e-mail:
 As credenciais SMTP ficam somente no ambiente. Destinatários, janelas, frequência e thresholds são editáveis na interface e persistidos em `ALERT_CONFIG_PATH`.
 O estado operacional de envios únicos por janela, como alerta de silêncio e digest final, é salvo em `ALERT_STATE_PATH`.
 
+OpenAI para recursos editoriais sob demanda:
+
+| Variável | Padrão | Descrição |
+|---|---:|---|
+| `OPENAI_API_KEY` | vazio | Chave usada somente pelo backend |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | Modelo usado na Responses API |
+
+Sem `OPENAI_API_KEY`, a aplicação continua funcionando; apenas o resumo IA retorna aviso de configuração.
+
 ## Uso
 
 - Edite a query diretamente em cada coluna.
 - Use o seletor `Recentes`/`Top` para mudar o modo da busca.
 - Use os campos de data por coluna para injetar `since:` e `until:` automaticamente.
 - Marque `sem RT` para adicionar `-filter:retweets` à busca daquela coluna.
+- Use `likes`, `replies`, `RTs`, `mídia` e `verificado` para adicionar `min_faves:`, `min_replies:`, `min_retweets:`, `filter:media` e `filter:verified`.
 - Clique no nome da coluna para renomear; nomes, queries, ordenação, filtros e número de colunas persistem no navegador.
 - O badge azul na coluna mostra quantos tweets novos chegaram desde o último refresh visualizado.
 - O texto do tweet é exibido completo, sem truncamento visual.
+
+## Fase 3 Editorial
+
+### Coleta ampliada
+
+Cada coluna tenta coletar até `MAX_TWEETS` resultados, com padrão de 100. Em `Recentes`, a busca usa `f=live`; em `Top`, usa `f=top`. O backend rola a página até atingir o limite, parar de receber tweets novos ou bater `MAX_SCROLLS`.
+
+Limitação: o X pode não renderizar 100 itens em todas as queries, sessões ou momentos. Nesses casos, o sistema entrega o máximo deduplicado que apareceu no DOM sem travar a aba.
+
+### Resumo IA da coluna
+
+O botão `IA` em cada coluna envia os tweets carregados daquela coluna para o backend, que chama a OpenAI Responses API. A resposta é em português, curta e voltada para redação: principais assuntos, sinais de pauta/controvérsia e o que monitorar.
+
+A chamada é manual para evitar custo em todo refresh. A chave nunca vai para o frontend.
+
+### Detector de viralização nascente
+
+Cada tweet recebe uma análise heurística local. O selo `Viralizando` aparece quando há tração recente ou desproporcional, combinando replies, retweets, likes e idade do tweet quando o timestamp está disponível.
+
+Esse detector não usa IA automaticamente. Ele é um sinal editorial, não uma previsão estatística.
+
+### Clip para pauta e fila editorial
+
+O botão `Clip` em cada tweet salva o item na fila editorial persistida em `localStorage`. A fila abre pelo botão `Fila` no topo, permite anotação curta por item, remoção e limpeza.
+
+As anotações ficam apenas no navegador em uso.
+
+### Exportar para WhatsApp
+
+Cada tweet ou item da fila pode ser copiado em formato pronto para WhatsApp. A fila inteira também pode ser copiada em lote pelo botão `Copiar WhatsApp`.
+
+O texto inclui fonte, anotação de pauta quando houver, conteúdo, métricas e link.
+
+### Score de credibilidade da fonte
+
+O selo `Fonte N/100` usa heurística explicável: verificação quando detectada na coleta, sinais de veículo/clube/entidade/jornalista no nome ou handle e alcance observado. O tooltip mostra os motivos.
+
+O score não atesta veracidade; ele só ajuda a priorizar checagem editorial.
 
 ## Alertas por E-mail
 
@@ -150,11 +201,19 @@ python server.py
 ```
 
 Configure pelo menos `X_COOKIES_JSON`. Para alertas, configure também `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` e, opcionalmente, `ALERT_EMAILS` e `DECK_URL`.
+Para resumo IA, configure também `OPENAI_API_KEY` e, opcionalmente, `OPENAI_MODEL`.
 
 ## Roadmap Técnico
 
 Implementado nesta rodada:
 
+- coleta ampliada com rolagem segura até 100 tweets por coluna;
+- filtros avançados por coluna: likes, replies, retweets, mídia e verificados;
+- resumo IA sob demanda por coluna via backend e Responses API;
+- detector heurístico de viralização nascente;
+- clip para pauta com fila editorial persistente no navegador;
+- exportação de tweet ou fila para texto de WhatsApp;
+- score simples e explicável de credibilidade da fonte;
 - alertas por e-mail com configuração editável e persistente;
 - janelas, destinatários, frequência, threshold, spike e preview configuráveis;
 - alerta de silêncio e digest final configuráveis;
@@ -172,4 +231,4 @@ Pendências maiores do planejamento:
 - templates e histórico de queries;
 - mídia inline, cards de link e thumbnails de vídeo;
 - destaque de keywords;
-- resumo/IA editorial, clip para pauta e integrações externas.
+- integrações externas além de cópia para WhatsApp.

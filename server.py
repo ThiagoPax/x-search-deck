@@ -10,6 +10,7 @@ from typing import Optional
 from aiohttp import web
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from email_alerts import get_scheduler
+from openai_service import OpenAIConfigError, summarize_column
 
 logging.basicConfig(level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S")
@@ -18,7 +19,9 @@ log = logging.getLogger(__name__)
 PORT             = int(os.environ.get("PORT", 8765))
 REFRESH_INTERVAL = int(os.environ.get("REFRESH_INTERVAL", 90))
 STAGGER_SECONDS  = int(os.environ.get("STAGGER_SECONDS", 8))
-MAX_TWEETS       = int(os.environ.get("MAX_TWEETS", 20))
+MAX_TWEETS       = int(os.environ.get("MAX_TWEETS", 100))
+MAX_SCROLLS      = int(os.environ.get("MAX_SCROLLS", 12))
+SCROLL_WAIT      = float(os.environ.get("SCROLL_WAIT", 1.1))
 PAGE_WAIT        = float(os.environ.get("PAGE_WAIT", 7))
 X_COOKIES_JSON   = os.environ.get("X_COOKIES_JSON", "")
 
@@ -57,13 +60,38 @@ def apply_column_filters(cfg: dict) -> str:
     q = re.sub(r"\s+", " ", (cfg.get("query") or "").replace("\n", " ")).strip()
     date_from = (cfg.get("date_from") or "").strip()
     date_to = (cfg.get("date_to") or "").strip()
+    min_faves = _clean_int(cfg.get("min_faves"))
+    min_replies = _clean_int(cfg.get("min_replies"))
+    min_retweets = _clean_int(cfg.get("min_retweets"))
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_from) and "since:" not in q:
         q = f"{q} since:{date_from}".strip()
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_to) and "until:" not in q:
         q = f"{q} until:{date_to}".strip()
     if cfg.get("exclude_retweets") and "-filter:retweets" not in q:
         q = f"{q} -filter:retweets".strip()
+    if min_faves is not None and "min_faves:" not in q:
+        q = f"{q} min_faves:{min_faves}".strip()
+    if min_replies is not None and "min_replies:" not in q:
+        q = f"{q} min_replies:{min_replies}".strip()
+    if min_retweets is not None and "min_retweets:" not in q:
+        q = f"{q} min_retweets:{min_retweets}".strip()
+    if cfg.get("filter_media") and "filter:media" not in q:
+        q = f"{q} filter:media".strip()
+    if cfg.get("filter_verified") and "filter:verified" not in q:
+        q = f"{q} filter:verified".strip()
     return q
+
+
+def _clean_int(value) -> Optional[int]:
+    try:
+        if value in ("", None):
+            return None
+        n = int(value)
+        if n < 0:
+            return None
+        return min(n, 10_000_000)
+    except Exception:
+        return None
 
 
 # ── Extração ──────────────────────────────────────────────
@@ -73,15 +101,37 @@ async def extract_tweets(page: Page) -> list[dict]:
         await page.wait_for_selector('article[data-testid="tweet"]', timeout=14000)
     except Exception:
         return []
-    articles = await page.query_selector_all('article[data-testid="tweet"]')
     tweets = []
-    for art in articles[:MAX_TWEETS]:
-        try:
-            t = await _one(art)
-            if t.get("text") or t.get("author_name"):
+    seen = set()
+    stagnant = 0
+    last_count = 0
+    for _ in range(MAX_SCROLLS + 1):
+        articles = await page.query_selector_all('article[data-testid="tweet"]')
+        for art in articles:
+            if len(tweets) >= MAX_TWEETS:
+                break
+            try:
+                t = await _one(art)
+                if not (t.get("text") or t.get("author_name")):
+                    continue
+                key = t.get("url") or f"{t.get('author_handle','')}:{t.get('text','')}"[:320]
+                if key in seen:
+                    continue
+                seen.add(key)
                 tweets.append(t)
-        except Exception:
-            pass
+            except Exception:
+                pass
+        if len(tweets) >= MAX_TWEETS:
+            break
+        if len(tweets) == last_count:
+            stagnant += 1
+        else:
+            stagnant = 0
+        if stagnant >= 3:
+            break
+        last_count = len(tweets)
+        await page.mouse.wheel(0, 2600)
+        await asyncio.sleep(SCROLL_WAIT)
     return tweets
 
 
@@ -107,6 +157,16 @@ async def _one(art) -> dict:
         t["author_name"], t["author_handle"] = r[0], r[1]
     except Exception:
         t["author_name"] = t["author_handle"] = ""
+
+    try:
+        t["verified"] = bool(await art.evaluate("""el => {
+            const un = el.querySelector('[data-testid="User-Name"]');
+            if (!un) return false;
+            const label = (un.innerText + ' ' + un.getAttribute('aria-label') + ' ' + un.outerHTML).toLowerCase();
+            return label.includes('verified') || label.includes('verificado') || label.includes('is a verified');
+        }"""))
+    except Exception:
+        t["verified"] = False
 
     av = await art.query_selector('img[src*="profile_images"]')
     src = await av.get_attribute("src") if av else ""
@@ -287,6 +347,23 @@ class XDeckApp:
             "message": "Preview enviado" if sent else "Sem tweets acima do threshold ou SMTP/destinatarios ausentes"
         }, status=status)
 
+    async def column_summary_handler(self, request):
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "JSON invalido"}, status=400)
+        tweets = data.get("tweets") or []
+        if not isinstance(tweets, list):
+            return web.json_response({"error": "tweets precisa ser uma lista"}, status=400)
+        try:
+            text = await summarize_column(tweets, data.get("column_name") or "")
+            return web.json_response({"summary": text})
+        except OpenAIConfigError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        except Exception as e:
+            log.error("Resumo IA falhou: %s", e)
+            return web.json_response({"error": str(e)[:180]}, status=502)
+
     async def ws_handler(self, request):
         ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
@@ -379,6 +456,7 @@ def create_app():
     app.router.add_get("/api/alerts/config", deck.alert_config_handler)
     app.router.add_post("/api/alerts/config", deck.alert_config_handler)
     app.router.add_post("/api/alerts/preview", deck.alert_preview_handler)
+    app.router.add_post("/api/ai/column-summary", deck.column_summary_handler)
     app.on_startup.append(deck.startup)
     app.on_shutdown.append(deck.shutdown)
     return app

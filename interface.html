@@ -45,10 +45,13 @@ button.tb-primary:hover { opacity:.88; }
 select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-radius:6px; color:var(--muted); padding:3px 7px; font-size:10px; outline:none; cursor:pointer; flex-shrink:0; }
 .col-meta { flex:1; font-size:10px; color:#3a3f44; white-space:nowrap; overflow:hidden; }
 .col-meta span { color:var(--muted); }
-.col-filters { display:grid; grid-template-columns:1fr 1fr auto; gap:5px; align-items:center; }
-.col-filters input[type="date"] { min-width:0; background:var(--bg); border:.5px solid var(--border); border-radius:6px; color:var(--muted); padding:3px 5px; font-size:10px; outline:none; color-scheme:dark; }
+.col-filters { display:grid; grid-template-columns:1fr 1fr auto auto auto; gap:5px; align-items:center; }
+.col-filters input[type="date"], .col-filters input[type="number"] { min-width:0; background:var(--bg); border:.5px solid var(--border); border-radius:6px; color:var(--muted); padding:3px 5px; font-size:10px; outline:none; color-scheme:dark; }
 .rt-toggle { display:flex; align-items:center; gap:4px; color:var(--muted); font-size:10px; white-space:nowrap; }
 .rt-toggle input { accent-color:var(--blue); }
+.col-tools { display:flex; align-items:center; gap:5px; }
+.summary-box { display:none; background:rgba(29,155,240,.07); border:.5px solid rgba(29,155,240,.25); border-radius:8px; padding:8px 9px; color:var(--text); font-size:11.5px; line-height:1.55; white-space:pre-wrap; }
+.summary-box.show { display:block; }
 .sdot { width:5px; height:5px; border-radius:50%; background:#2a2a2a; flex-shrink:0; transition:background .3s; }
 .sdot.loading { background:var(--blue); animation:blink .8s infinite; }
 .sdot.ok      { background:var(--green); }
@@ -80,6 +83,11 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 .tw-text { font-size:12.5px; line-height:1.55; color:var(--text); margin-bottom:7px; word-break:break-word; }
 .tw-metrics { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 .tw-m { display:flex; align-items:center; gap:3px; font-size:11px; color:#555; }
+.tw-actions { display:flex; align-items:center; gap:7px; margin-top:7px; }
+.tw-chip { border:.5px solid var(--border); border-radius:12px; color:var(--muted); background:transparent; padding:2px 7px; font-size:10px; cursor:pointer; }
+.tw-chip:hover { color:var(--blue); border-color:var(--blue); }
+.tw-signal { color:var(--amber); border-color:rgba(255,212,0,.35); }
+.tw-cred { color:#8b98a5; cursor:help; }
 
 /* Column name */
 .col-name-wrap { position:relative; display:flex; align-items:center; justify-content:center; padding:4px 8px 2px; }
@@ -116,8 +124,20 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 .window-row label { display:flex; align-items:center; justify-content:center; gap:4px; color:var(--muted); font-size:11px; }
 .modal-actions { display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:14px; }
 .modal-status { margin-right:auto; color:var(--muted); font-size:11px; }
+#queue-drawer { position:fixed; right:0; top:0; bottom:0; width:min(430px, 100vw); background:var(--s1); border-left:.5px solid var(--border); z-index:1001; transform:translateX(100%); transition:transform .18s ease; display:flex; flex-direction:column; box-shadow:-18px 0 50px rgba(0,0,0,.45); }
+#queue-drawer.show { transform:translateX(0); }
+.queue-head { display:flex; align-items:center; gap:8px; padding:12px; border-bottom:.5px solid var(--border); }
+.queue-head h2 { font-size:15px; flex:1; }
+.queue-body { flex:1; overflow:auto; padding:10px; display:flex; flex-direction:column; gap:10px; }
+.queue-empty { color:var(--muted); font-size:12px; padding:18px 8px; text-align:center; }
+.queue-item { border:.5px solid var(--border); border-radius:8px; padding:10px; background:var(--bg); }
+.queue-item strong { display:block; font-size:12px; margin-bottom:5px; }
+.queue-item p { font-size:12px; line-height:1.45; color:var(--text); margin-bottom:7px; }
+.queue-item textarea { width:100%; min-height:46px; resize:vertical; background:var(--s1); border:.5px solid var(--border); border-radius:7px; color:var(--text); padding:7px; font-size:12px; outline:none; }
+.queue-actions { display:flex; align-items:center; gap:7px; margin-top:7px; flex-wrap:wrap; }
+.queue-foot { border-top:.5px solid var(--border); padding:10px; display:flex; align-items:center; gap:8px; }
 @media (max-width: 720px) {
-  .alert-grid, .window-row { grid-template-columns:1fr; }
+  .alert-grid, .window-row, .col-filters { grid-template-columns:1fr; }
   .field.full, .windows { grid-column:auto; }
 }
 </style>
@@ -137,6 +157,7 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
       <option value="6" selected>6 colunas</option>
     </select>
     <button class="tb-btn" onclick="subscribeAll()">↺ Atualizar</button>
+    <button class="tb-btn" onclick="openQueue()">Fila</button>
     <button class="tb-btn" onclick="openAlertModal()">Alertas</button>
     <button class="tb-primary" onclick="subscribeAll()">▶ Iniciar busca</button>
   </div>
@@ -218,6 +239,19 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
   </div>
 </div>
 
+<aside id="queue-drawer">
+  <div class="queue-head">
+    <h2>Fila editorial</h2>
+    <button class="tb-btn" onclick="copyQueueWhatsApp()">Copiar WhatsApp</button>
+    <button class="modal-close" onclick="closeQueue()" title="Fechar">×</button>
+  </div>
+  <div class="queue-body" id="queue-body"></div>
+  <div class="queue-foot">
+    <span class="modal-status" id="queue-status"></span>
+    <button class="tb-btn" onclick="clearQueue()">Limpar fila</button>
+  </div>
+</aside>
+
 <script>
 // ── Detecta URL do WebSocket automaticamente ──────────────
 // Se abrindo pelo Render: wss://seu-app.onrender.com/ws
@@ -259,6 +293,7 @@ lang:pt`},
 let numCols = +(localStorage.getItem('xdeck_num_cols') || 6), ws = null, reconnTimer = null, reconnAttempts = 0;
 let seenUrls = {}, colResults = {};
 let alertConfig = null;
+let editorialQueue = loadQueue();
 
 // ── Grid ──────────────────────────────────────────────────
 function buildGrid() {
@@ -286,13 +321,22 @@ function buildGrid() {
             <option value="top"  ${(loadColSort(i)||p.sort)==='top'?'selected':''}>Top</option>
           </select>
           <div class="col-meta" id="meta${i}">—</div>
+          <div class="col-tools">
+            <button class="rbtn" onclick="summarizeColumn(${i})" title="Resumo IA">IA</button>
+          </div>
           <div class="sdot" id="sdot${i}"></div>
           <button class="rbtn" onclick="refreshOne(${i})" title="Refresh">↺</button>
         </div>
+        <div class="summary-box" id="summary${i}"></div>
         <div class="col-filters">
           <input type="date" id="from${i}" value="${esc(loadColDateFrom(i) || '')}" title="Desde">
           <input type="date" id="to${i}" value="${esc(loadColDateTo(i) || '')}" title="Até">
+          <input type="number" id="minf${i}" min="0" value="${esc(loadColMinFaves(i) || '')}" placeholder="likes" title="Mínimo de likes">
+          <input type="number" id="minrep${i}" min="0" value="${esc(loadColMinReplies(i) || '')}" placeholder="replies" title="Mínimo de replies">
+          <input type="number" id="minrt${i}" min="0" value="${esc(loadColMinRetweets(i) || '')}" placeholder="RTs" title="Mínimo de retweets">
           <label class="rt-toggle" title="Excluir retweets"><input type="checkbox" id="nort${i}" ${loadColExcludeRt(i) ? 'checked' : ''}> sem RT</label>
+          <label class="rt-toggle" title="Exigir mídia"><input type="checkbox" id="media${i}" ${loadColFilterMedia(i) ? 'checked' : ''}> mídia</label>
+          <label class="rt-toggle" title="Exigir conta verificada"><input type="checkbox" id="verified${i}" ${loadColFilterVerified(i) ? 'checked' : ''}> verificado</label>
         </div>
       </div>
       <div class="col-body" id="body${i}">
@@ -308,7 +352,12 @@ function buildGrid() {
     document.getElementById(`colname${i}`).addEventListener('input', function() { saveColName(i, this.value); });
     document.getElementById(`from${i}`).addEventListener('change', function() { saveColDateFrom(i, this.value); });
     document.getElementById(`to${i}`).addEventListener('change', function() { saveColDateTo(i, this.value); });
+    document.getElementById(`minf${i}`).addEventListener('input', function() { saveColMinFaves(i, this.value); });
+    document.getElementById(`minrep${i}`).addEventListener('input', function() { saveColMinReplies(i, this.value); });
+    document.getElementById(`minrt${i}`).addEventListener('input', function() { saveColMinRetweets(i, this.value); });
     document.getElementById(`nort${i}`).addEventListener('change', function() { saveColExcludeRt(i, this.checked); });
+    document.getElementById(`media${i}`).addEventListener('change', function() { saveColFilterMedia(i, this.checked); });
+    document.getElementById(`verified${i}`).addEventListener('change', function() { saveColFilterVerified(i, this.checked); });
     // Clear badge when column body is clicked
     document.getElementById(`body${i}`).addEventListener('click', () => clearBadge(i), { capture: true });
   }
@@ -374,7 +423,12 @@ function subscribeAll() {
       name:  document.getElementById(`colname${i}`)?.value || `Coluna ${i+1}`,
       date_from: document.getElementById(`from${i}`)?.value || '',
       date_to: document.getElementById(`to${i}`)?.value || '',
+      min_faves: document.getElementById(`minf${i}`)?.value || '',
+      min_replies: document.getElementById(`minrep${i}`)?.value || '',
+      min_retweets: document.getElementById(`minrt${i}`)?.value || '',
       exclude_retweets: !!document.getElementById(`nort${i}`)?.checked,
+      filter_media: !!document.getElementById(`media${i}`)?.checked,
+      filter_verified: !!document.getElementById(`verified${i}`)?.checked,
     });
   }
   ws.send(JSON.stringify({ type:'subscribe', columns:cols }));
@@ -403,6 +457,7 @@ function handleStatus({ column:col, status, message }) {
 }
 
 function handleResults({ column:col, tweets, updated, count }) {
+  colResults[col] = tweets || [];
   const meta = document.getElementById(`meta${col}`);
   if (meta) meta.innerHTML = `<span>${count} tweets</span> · ${updated}`;
   const body = document.getElementById(`body${col}`);
@@ -438,6 +493,8 @@ function renderTweet(t, isNew) {
     [iReply, t.replies], [iRT, t.retweets], [iLike, t.likes], [iViews, t.views]
   ].filter(([,v]) => v && v !== '0')
    .map(([ic,v]) => `<span class="tw-m">${ic}<span>${esc(v)}</span></span>`).join('');
+  const viral = viralSignal(t);
+  const cred = credibilityScore(t);
   div.innerHTML = `
     <div class="tw-head">
       ${av}
@@ -448,7 +505,14 @@ function renderTweet(t, isNew) {
       <div class="tw-time">${relTime(t.timestamp)}</div>
     </div>
     <div class="tw-text">${escHtml(t.text)}</div>
-    ${metrics ? `<div class="tw-metrics">${metrics}</div>` : ''}`;
+    ${metrics ? `<div class="tw-metrics">${metrics}</div>` : ''}
+    <div class="tw-actions">
+      <button class="tw-chip" onclick="clipTweet(event, this)" title="Adicionar à fila editorial">Clip</button>
+      <button class="tw-chip" onclick="copyTweetWhatsApp(event, this)" title="Copiar texto para WhatsApp">WhatsApp</button>
+      ${viral ? `<span class="tw-chip tw-signal" title="${esc(viral.reason)}">Viralizando</span>` : ''}
+      <span class="tw-chip tw-cred" title="${esc(cred.reason)}">Fonte ${cred.score}/100</span>
+    </div>`;
+  div._tweet = t;
   return div;
 }
 
@@ -465,12 +529,206 @@ function relTime(iso) {
   if (s<86400) return `${Math.round(s/3600)}h`;
   return `${Math.round(s/86400)}d`;
 }
+function metricNum(v) {
+  if (!v) return 0;
+  let s = String(v).trim().toUpperCase().replace(/\s/g,'').replace(',', '.');
+  let mult = 1;
+  if (s.endsWith('K')) { mult = 1000; s = s.slice(0, -1); }
+  else if (s.endsWith('M')) { mult = 1000000; s = s.slice(0, -1); }
+  s = s.replace(/[^0-9.]/g, '');
+  if ((s.match(/\./g) || []).length > 1) s = s.replace(/\./g, '');
+  const n = Number.parseFloat(s);
+  return Number.isFinite(n) ? Math.round(n * mult) : 0;
+}
+function engagement(t) {
+  return metricNum(t.replies) + metricNum(t.retweets) + metricNum(t.likes);
+}
+function tweetAgeMinutes(t) {
+  const d = new Date(t.timestamp);
+  if (isNaN(d)) return null;
+  return Math.max(1, (Date.now() - d.getTime()) / 60000);
+}
+function viralSignal(t) {
+  const age = tweetAgeMinutes(t);
+  const replies = metricNum(t.replies), rts = metricNum(t.retweets), likes = metricNum(t.likes);
+  const score = replies * 3 + rts * 2 + likes;
+  if (!age) {
+    if (replies >= 500 || score >= 2500) return { reason:'Engajamento absoluto alto para monitoramento editorial.' };
+    return null;
+  }
+  const perHour = score / Math.max(age / 60, 0.25);
+  const replyShare = score ? replies / score : 0;
+  if (age <= 180 && (perHour >= 900 || replies >= 250 || replyShare >= .35 && replies >= 80)) {
+    return { reason:`Tração recente: score/h ${Math.round(perHour)}, replies ${replies}, idade ${Math.round(age)} min.` };
+  }
+  return null;
+}
+function credibilityScore(t) {
+  let score = 35;
+  const reasons = [];
+  const name = (t.author_name || '').toLowerCase();
+  const handle = (t.author_handle || '').toLowerCase();
+  const text = `${name} ${handle}`;
+  const known = /(ge|globoesporte|espn|uol|folha|estadao|lance|gazeta|record|band|cnn|itataia|jovem pan|cbf|conmebol|fifa|club|fc|oficial|prefeitura|governo|jornal|news|esporte)/i;
+  const journo = /(jornalista|rep[oó]rter|comentarista|colunista|setorista|narrador|correspondente)/i;
+  if (t.verified) { score += 25; reasons.push('conta verificada'); }
+  if (known.test(text)) { score += 20; reasons.push('nome/handle sugere veículo, clube ou entidade'); }
+  if (journo.test(text)) { score += 12; reasons.push('nome/handle sugere atuação jornalística'); }
+  if (metricNum(t.views) >= 100000 || engagement(t) >= 2000) { score += 8; reasons.push('alto alcance observado'); }
+  if (!t.author_handle) { score -= 10; reasons.push('handle ausente na coleta'); }
+  score = Math.max(0, Math.min(100, score));
+  return { score, reason: reasons.length ? reasons.join('; ') : 'score heurístico; sem sinais fortes de credibilidade na coleta' };
+}
 function svgI(path) { return `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="${path}"/></svg>`; }
 const iReply = svgI('M1.751 10c0-4.42 3.584-8 8.005-8h4.246C18.484 2 22 5.58 22 10c0 4.423-3.516 8.003-7.998 8.003h-.013l-4.262.002a8.44 8.44 0 0 1-3.024-.555l-3.49 1.093a.75.75 0 0 1-.917-.916l1.065-3.395A8.04 8.04 0 0 1 1.751 10Z');
 const iRT    = svgI('M4.5 3.88l4.432 4.14-1.364 1.46L5.5 7.55V16c0 1.1.896 2 2 2H13v2H7.5c-2.209 0-4-1.79-4-4V7.55L1.432 9.48.068 8.02 4.5 3.88zM16.5 6H11V4h5.5c2.209 0 4 1.79 4 4v8.45l2.068-1.93 1.364 1.46-4.432 4.14-4.432-4.14 1.364-1.46 2.068 1.93V8c0-1.1-.896-2-2-2z');
 const iLike  = svgI('M16.697 5.5c-1.222-.06-2.679.51-3.89 2.16l-.805 1.09-.806-1.09C9.984 6.01 8.526 5.44 7.304 5.5c-1.243.07-2.349.78-2.91 1.91-.552 1.12-.633 2.78.479 4.82 1.074 1.97 3.257 4.27 7.129 6.61 3.87-2.34 6.052-4.64 7.126-6.61 1.111-2.04 1.03-3.7.477-4.82-.561-1.13-1.666-1.84-2.908-1.91z');
 const iViews = svgI('M8.75 21V3h2v18h-2zM18 21V8.5h2V21h-2zM4 21l.004-10h2L6 21H4zm9.248 0v-7h2v7h-2z');
 function xSvg() { return `<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.741l7.73-8.835L1.254 2.25H8.08l4.258 5.63 5.906-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z"/></svg>`; }
+
+// ── IA sob demanda ───────────────────────────────────────
+async function summarizeColumn(col) {
+  const box = document.getElementById(`summary${col}`);
+  const tweets = colResults[col] || [];
+  if (!box) return;
+  box.classList.add('show');
+  if (!tweets.length) {
+    box.textContent = 'Sem tweets carregados para resumir.';
+    return;
+  }
+  box.textContent = 'Gerando resumo...';
+  try {
+    const r = await fetch('/api/ai/column-summary', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({
+        column_name: document.getElementById(`colname${col}`)?.value || `Coluna ${col + 1}`,
+        tweets: tweets.slice(0, 80),
+      }),
+    });
+    const data = await r.json();
+    box.textContent = r.ok ? data.summary : (data.error || 'Erro ao gerar resumo.');
+  } catch {
+    box.textContent = 'Erro de rede ao gerar resumo.';
+  }
+}
+
+// ── Fila editorial e WhatsApp ────────────────────────────
+function queueKey() { return 'xdeck_editorial_queue'; }
+function loadQueue() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(queueKey()) || '[]');
+    return Array.isArray(raw) ? raw : [];
+  } catch { return []; }
+}
+function saveQueue() {
+  localStorage.setItem(queueKey(), JSON.stringify(editorialQueue.slice(0, 100)));
+  renderQueue();
+}
+function openQueue() {
+  renderQueue();
+  document.getElementById('queue-drawer').classList.add('show');
+}
+function closeQueue() {
+  document.getElementById('queue-drawer').classList.remove('show');
+}
+function getTweetFromButton(btn) {
+  return btn.closest('.tweet')?._tweet || null;
+}
+function clipTweet(ev, btn) {
+  ev.stopPropagation();
+  const t = getTweetFromButton(btn);
+  if (!t) return;
+  const key = t.url || `${t.author_handle}:${t.text}`;
+  if (!editorialQueue.some(item => item.key === key)) {
+    editorialQueue.unshift({ key, tweet:t, note:'', clipped_at:new Date().toISOString() });
+    saveQueue();
+  }
+  setQueueStatus('clipado na fila');
+}
+function removeQueueItem(idx) {
+  editorialQueue.splice(idx, 1);
+  saveQueue();
+}
+function updateQueueNote(idx, note) {
+  const item = editorialQueue[idx];
+  if (item) {
+    item.note = note;
+    localStorage.setItem(queueKey(), JSON.stringify(editorialQueue.slice(0, 100)));
+  }
+}
+function clearQueue() {
+  if (!editorialQueue.length) return;
+  editorialQueue = [];
+  saveQueue();
+  setQueueStatus('fila limpa');
+}
+function renderQueue() {
+  const body = document.getElementById('queue-body');
+  if (!body) return;
+  if (!editorialQueue.length) {
+    body.innerHTML = '<div class="queue-empty">Nenhum clip salvo.</div>';
+    return;
+  }
+  body.innerHTML = '';
+  editorialQueue.forEach((item, idx) => {
+    const t = item.tweet || {};
+    const div = document.createElement('div');
+    div.className = 'queue-item';
+    div.innerHTML = `
+      <strong>${esc(t.author_name)} <span style="color:var(--muted)">${esc(t.author_handle)}</span></strong>
+      <p>${escHtml((t.text || '').slice(0, 420))}</p>
+      <textarea placeholder="Anotação para pauta..." oninput="updateQueueNote(${idx}, this.value)">${esc(item.note || '')}</textarea>
+      <div class="queue-actions">
+        <button class="tw-chip" onclick="copyItemWhatsApp(${idx})">Copiar WhatsApp</button>
+        ${t.url ? `<button class="tw-chip" onclick="window.open('${escAttr(t.url)}','_blank')">Abrir</button>` : ''}
+        <button class="tw-chip" onclick="removeQueueItem(${idx})">Remover</button>
+      </div>`;
+    body.appendChild(div);
+  });
+}
+function formatTweetWhatsApp(t, note='') {
+  const bits = [];
+  bits.push(`*${t.author_name || 'Fonte'}* ${t.author_handle || ''}`.trim());
+  if (note) bits.push(`Pauta: ${note}`);
+  if (t.text) bits.push(t.text);
+  const metric = `Replies ${t.replies || 0} | RTs ${t.retweets || 0} | Likes ${t.likes || 0}`;
+  bits.push(metric);
+  if (t.url) bits.push(t.url);
+  return bits.filter(Boolean).join('\n');
+}
+async function copyText(text) {
+  await navigator.clipboard.writeText(text);
+}
+async function copyTweetWhatsApp(ev, btn) {
+  ev.stopPropagation();
+  const t = getTweetFromButton(btn);
+  if (!t) return;
+  await copyText(formatTweetWhatsApp(t));
+  setQueueStatus('tweet copiado');
+}
+async function copyItemWhatsApp(idx) {
+  const item = editorialQueue[idx];
+  if (!item) return;
+  await copyText(formatTweetWhatsApp(item.tweet || {}, item.note || ''));
+  setQueueStatus('item copiado');
+}
+async function copyQueueWhatsApp() {
+  if (!editorialQueue.length) {
+    setQueueStatus('fila vazia');
+    return;
+  }
+  const text = editorialQueue.map((item, idx) => `${idx + 1}. ${formatTweetWhatsApp(item.tweet || {}, item.note || '')}`).join('\n\n');
+  await copyText(text);
+  setQueueStatus('fila copiada');
+}
+function setQueueStatus(msg) {
+  const el = document.getElementById('queue-status');
+  if (!el) return;
+  el.textContent = msg || '';
+  if (msg) setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 2200);
+}
+function escAttr(s) { return esc(s).replace(/'/g, '&#39;'); }
 
 // ── localStorage helpers ──────────────────────────────────
 function lsKey(col, field) { return `xdeck_col${col}_${field}`; }
@@ -479,13 +737,23 @@ function saveColSort(col, v)  { localStorage.setItem(lsKey(col,'sort'),  v); }
 function saveColName(col, v)  { localStorage.setItem(lsKey(col,'name'),  v); }
 function saveColDateFrom(col, v) { localStorage.setItem(lsKey(col,'date_from'), v); }
 function saveColDateTo(col, v)   { localStorage.setItem(lsKey(col,'date_to'), v); }
+function saveColMinFaves(col, v) { localStorage.setItem(lsKey(col,'min_faves'), v); }
+function saveColMinReplies(col, v) { localStorage.setItem(lsKey(col,'min_replies'), v); }
+function saveColMinRetweets(col, v) { localStorage.setItem(lsKey(col,'min_retweets'), v); }
 function saveColExcludeRt(col, v){ localStorage.setItem(lsKey(col,'exclude_rt'), v ? '1' : '0'); }
+function saveColFilterMedia(col, v){ localStorage.setItem(lsKey(col,'filter_media'), v ? '1' : '0'); }
+function saveColFilterVerified(col, v){ localStorage.setItem(lsKey(col,'filter_verified'), v ? '1' : '0'); }
 function loadColQuery(col)    { return localStorage.getItem(lsKey(col,'query')); }
 function loadColSort(col)     { return localStorage.getItem(lsKey(col,'sort')); }
 function loadColName(col)     { return localStorage.getItem(lsKey(col,'name')); }
 function loadColDateFrom(col) { return localStorage.getItem(lsKey(col,'date_from')); }
 function loadColDateTo(col)   { return localStorage.getItem(lsKey(col,'date_to')); }
+function loadColMinFaves(col) { return localStorage.getItem(lsKey(col,'min_faves')); }
+function loadColMinReplies(col) { return localStorage.getItem(lsKey(col,'min_replies')); }
+function loadColMinRetweets(col) { return localStorage.getItem(lsKey(col,'min_retweets')); }
 function loadColExcludeRt(col){ return localStorage.getItem(lsKey(col,'exclude_rt')) === '1'; }
+function loadColFilterMedia(col){ return localStorage.getItem(lsKey(col,'filter_media')) === '1'; }
+function loadColFilterVerified(col){ return localStorage.getItem(lsKey(col,'filter_verified')) === '1'; }
 
 // ── Alert config ─────────────────────────────────────────
 async function openAlertModal() {
@@ -606,6 +874,7 @@ function clearBadge(col) {
 const colsSel = document.getElementById('cols-sel');
 if (colsSel) colsSel.value = String(numCols);
 buildGrid();
+renderQueue();
 connect();
 </script>
 </body>
