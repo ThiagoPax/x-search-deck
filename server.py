@@ -10,7 +10,7 @@ from typing import Optional
 from aiohttp import web
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from email_alerts import get_scheduler
-from openai_service import OpenAIConfigError, summarize_column
+from openai_service import OpenAIConfigError, OpenAIEmptyResponseError, summarize_column
 
 logging.basicConfig(level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S")
@@ -332,6 +332,9 @@ class XDeckApp:
         self.subscriptions: dict[int, dict] = {}
         self.results:       dict[int, list] = {}
         self.clients:       set[web.WebSocketResponse] = set()
+        self._refresh_task: Optional[asyncio.Task] = None
+        self._refresh_again = False
+        self._generation = 0
 
     async def startup(self, app):
         await self.bm.start()
@@ -386,6 +389,8 @@ class XDeckApp:
             return web.json_response({"summary": text})
         except OpenAIConfigError as e:
             return web.json_response({"error": str(e)}, status=400)
+        except OpenAIEmptyResponseError as e:
+            return web.json_response({"error": str(e)}, status=502)
         except Exception as e:
             log.error("Resumo IA falhou: %s", e)
             return web.json_response({"error": str(e)[:180]}, status=502)
@@ -416,19 +421,23 @@ class XDeckApp:
                         i: col for i, col in enumerate(data.get("columns", []))
                         if col.get("query", "").strip()
                     }
+                    self._generation += 1
                     log.info(f"Subscription: {len(self.subscriptions)} colunas")
-                    asyncio.create_task(self.refresh_all())
+                    if data.get("refresh", True):
+                        self.schedule_refresh_all()
                 elif data.get("type") == "refresh_one":
                     col_id = data.get("column")
                     if col_id is not None:
-                        asyncio.create_task(self.refresh_column(col_id))
+                        cfg = self.subscriptions.get(col_id)
+                        if cfg:
+                            asyncio.create_task(self.refresh_column(col_id, cfg.copy(), self._generation))
 
         self.clients.discard(ws)
         log.info(f"Cliente desconectado ({len(self.clients)})")
         return ws
 
-    async def refresh_column(self, col_id: int):
-        cfg = self.subscriptions.get(col_id)
+    async def refresh_column(self, col_id: int, cfg: Optional[dict] = None, generation: Optional[int] = None):
+        cfg = cfg or self.subscriptions.get(col_id)
         if not cfg or not cfg.get("query", "").strip():
             return
         await self.broadcast({"type":"status","column":col_id,"status":"loading"})
@@ -437,6 +446,21 @@ class XDeckApp:
             url = build_url(filtered_query, cfg.get("sort","live"))
             log.info(f"Col {col_id+1}: coletando...")
             tweets = await self.bm.fetch(url)
+            current_cfg = self.subscriptions.get(col_id)
+            if generation is not None and generation != self._generation:
+                log.info(f"Col {col_id+1}: resultado antigo descartado")
+                return
+            if current_cfg is not None and _cfg_signature(current_cfg) != _cfg_signature(cfg):
+                log.info(f"Col {col_id+1}: configuração mudou durante coleta; descartando")
+                return
+            if not tweets and self.results.get(col_id):
+                ts = datetime.now().strftime("%H:%M:%S")
+                await self.broadcast({"type":"results","column":col_id,
+                    "tweets":self.results[col_id],"updated":f"{ts} · mantido","count":len(self.results[col_id])})
+                await self.broadcast({"type":"status","column":col_id,
+                    "status":"error","message":"X não renderizou resultados nesta coleta; mantendo últimos tweets."})
+                log.warning(f"Col {col_id+1}: 0 tweets transitório; mantendo {len(self.results[col_id])}")
+                return
             self.results[col_id] = tweets
             ts = datetime.now().strftime("%H:%M:%S")
             await self.broadcast({"type":"results","column":col_id,
@@ -450,18 +474,34 @@ class XDeckApp:
             await self.broadcast({"type":"status","column":col_id,
                 "status":"error","message":str(e)[:120]})
 
+    def schedule_refresh_all(self):
+        if self._refresh_task and not self._refresh_task.done():
+            self._refresh_again = True
+            log.info("Refresh global já em andamento; novo ciclo enfileirado")
+            return
+        self._refresh_task = asyncio.create_task(self.refresh_all())
+
     async def refresh_all(self):
-        for col_id in sorted(self.subscriptions):
-            await self.refresh_column(col_id)
-            await asyncio.sleep(STAGGER_SECONDS)
-        get_scheduler().dispatch_scheduled()
+        while True:
+            self._refresh_again = False
+            generation = self._generation
+            snapshot = {col_id: cfg.copy() for col_id, cfg in self.subscriptions.items()}
+            for col_id in sorted(snapshot):
+                await self.refresh_column(col_id, snapshot[col_id], generation)
+                if generation != self._generation:
+                    log.info("Subscriptions mudaram; interrompendo ciclo antigo")
+                    break
+                await asyncio.sleep(STAGGER_SECONDS)
+            get_scheduler().dispatch_scheduled()
+            if not self._refresh_again:
+                break
 
     async def _refresh_loop(self):
         while True:
             await asyncio.sleep(REFRESH_INTERVAL)
             if self.subscriptions:
                 log.info("⏰ Auto-refresh")
-                await self.refresh_all()
+                self.schedule_refresh_all()
 
     async def broadcast(self, message: dict):
         data = json.dumps(message, ensure_ascii=False)
@@ -472,6 +512,10 @@ class XDeckApp:
             except Exception:
                 dead.add(ws)
         self.clients -= dead
+
+
+def _cfg_signature(cfg: dict) -> str:
+    return json.dumps(cfg or {}, sort_keys=True, ensure_ascii=False)
 
 
 def create_app():

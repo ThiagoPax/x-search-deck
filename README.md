@@ -98,12 +98,19 @@ Sem `OPENAI_API_KEY`, a aplicação continua funcionando; apenas o resumo IA ret
 
 - Edite a query diretamente em cada coluna.
 - Use o seletor `Recentes`/`Top` para mudar o modo da busca.
+  - `Recentes` usa o modo `f=live` do próprio X.
+  - `Top` usa o modo `f=top` do próprio X; o deck não reordena localmente por engajamento.
 - Use os campos de data por coluna para injetar `since:` e `until:` automaticamente.
 - Marque `sem RT` para adicionar `-filter:retweets` à busca daquela coluna.
 - Use `likes`, `replies`, `RTs`, `mídia` e `verificado` para adicionar `min_faves:`, `min_replies:`, `min_retweets:`, `filter:media` e `filter:verified`.
 - Clique no nome da coluna para renomear; nomes, queries, ordenação, filtros e número de colunas persistem no navegador.
+- Use o seletor `Templates salvos...` em cada coluna para aplicar, salvar ou excluir templates de query persistidos no navegador.
+- Arraste o handle `⋮⋮` no cabeçalho para reorganizar colunas preservando o estado salvo de cada uma.
+- O botão `Ao vivo` mantém as colunas inscritas no auto-refresh do backend. Ao pausar, as subscriptions são removidas até uma nova busca.
 - O badge azul na coluna mostra quantos tweets novos chegaram desde o último refresh visualizado.
 - O texto do tweet é exibido completo, sem truncamento visual.
+- Termos relevantes da query são destacados no texto quando aparecem no tweet.
+- Quando o X expõe fotos, GIF thumbs ou thumbs de vídeo no DOM, o card tenta exibir mídia inline.
 
 ## Fase 3 Editorial
 
@@ -111,13 +118,34 @@ Sem `OPENAI_API_KEY`, a aplicação continua funcionando; apenas o resumo IA ret
 
 Cada coluna tenta coletar até `MAX_TWEETS` resultados, com padrão de 100. Em `Recentes`, a busca usa `f=live`; em `Top`, usa `f=top`. O backend rola a página até atingir o limite, parar de receber tweets novos ou bater `MAX_SCROLLS`.
 
-Limitação: o X pode não renderizar 100 itens em todas as queries, sessões ou momentos. Nesses casos, o sistema entrega o máximo deduplicado que apareceu no DOM sem travar a aba.
+Limitações:
+
+- o X pode não renderizar 100 itens em todas as queries, sessões ou momentos. Nesses casos, o sistema entrega o máximo deduplicado que apareceu no DOM sem travar a aba;
+- `Recentes` e `Top` dependem da ordenação entregue pelo X. O deck não aplica uma segunda ordenação local por data ou engajamento;
+- quando uma coleta de uma coluna já populada volta vazia de forma transitória, o backend preserva os últimos tweets daquela coluna e marca o status como erro para evitar regressão visual para zero.
 
 ### Resumo IA da coluna
 
 O botão `IA` em cada coluna envia os tweets carregados daquela coluna para o backend, que chama a OpenAI Responses API. A resposta é em português, curta e voltada para redação: principais assuntos, sinais de pauta/controvérsia e o que monitorar.
 
 A chamada é manual para evitar custo em todo refresh. A chave nunca vai para o frontend.
+
+Sem `OPENAI_API_KEY`, o backend retorna uma mensagem clara de configuração ausente e o restante do deck continua funcionando. Se a OpenAI responder sem texto, a interface mostra uma mensagem específica em vez de uma falha genérica.
+
+## Fase 2 Restaurada na Hotfix
+
+Esta hotfix restaurou recursos previstos/entregues na Fase 2 que haviam regredido após a Fase 3:
+
+- templates de query salvos em `localStorage`, com aplicar/salvar/excluir por coluna;
+- destaque local de keywords da query no texto do tweet;
+- mídia inline para fotos, GIF thumbnails e thumbnails de vídeo quando esses elementos aparecem no DOM renderizado pelo X;
+- modo ao vivo explícito no topo, usando as subscriptions WebSocket e o auto-refresh do backend;
+- drag-and-drop de colunas por handle, preservando estado salvo;
+- preservação dos alertas de spike e silêncio editorial existentes.
+
+Limitações de mídia inline: o deck não baixa mídia diretamente pela API do X. Ele apenas reaproveita URLs de imagens/thumbs que o X renderiza no HTML coletado pelo Playwright. Tweets com vídeo sem thumbnail disponível, cards externos ou mídia bloqueada pela sessão podem aparecer sem mídia.
+
+Observação sobre modo ao vivo: o modo ao vivo depende de WebSocket conectado, cookies válidos do X e ao menos uma coluna com query. Pausar o modo ao vivo limpa as subscriptions do backend para evitar coletas sobrepostas.
 
 ### Detector de viralização nascente
 
@@ -207,6 +235,12 @@ Para resumo IA, configure também `OPENAI_API_KEY` e, opcionalmente, `OPENAI_MOD
 
 Implementado nesta rodada:
 
+- hotfix de estabilização pós-Fase 3:
+  - refresh global coalescido para evitar subscriptions duplicadas e coletas sobrepostas;
+  - proteção contra coleta vazia transitória sobrescrever coluna já populada;
+  - restauração de templates, mídia inline, destaque de keywords, modo ao vivo e drag-and-drop;
+  - mensagens de erro mais claras para resumo IA;
+  - filtros avançados reorganizados para legibilidade;
 - coleta ampliada com rolagem segura até 100 tweets por coluna;
 - filtros avançados por coluna: likes, replies, retweets, mídia e verificados;
 - resumo IA sob demanda por coluna via backend e Responses API;
@@ -227,8 +261,7 @@ Implementado nesta rodada:
 Pendências maiores do planejamento:
 
 - adicionar/remover colunas sem limite fixo;
-- drag-and-drop e largura ajustável;
-- templates e histórico de queries;
-- mídia inline, cards de link e thumbnails de vídeo;
-- destaque de keywords;
+- largura ajustável;
+- histórico cronológico de queries além dos templates salvos;
+- cards de link externos completos;
 - integrações externas além de cópia para WhatsApp.
