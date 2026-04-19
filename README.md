@@ -90,9 +90,9 @@ OpenAI para recursos editoriais sob demanda:
 | Variável | Padrão | Descrição |
 |---|---:|---|
 | `OPENAI_API_KEY` | vazio | Chave usada somente pelo backend |
-| `OPENAI_MODEL` | `gpt-4.1-mini` | Modelo usado na Responses API |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | Modelo usado na Responses API; precisa estar disponível para a chave configurada |
 
-Sem `OPENAI_API_KEY`, a aplicação continua funcionando; apenas o resumo IA retorna aviso de configuração.
+Sem `OPENAI_API_KEY`, a aplicação continua funcionando; apenas o resumo IA retorna aviso de configuração. Se `OPENAI_MODEL` estiver vazio, inválido ou sem acesso, o endpoint retorna uma mensagem específica para ajuste do ambiente.
 
 ## Uso
 
@@ -126,11 +126,11 @@ Limitações:
 
 ### Resumo IA da coluna
 
-O botão `IA` em cada coluna envia os tweets carregados daquela coluna para o backend, que chama a OpenAI Responses API. A resposta é em português, curta e voltada para redação: principais assuntos, sinais de pauta/controvérsia e o que monitorar.
+O botão `IA` em cada coluna envia até os 20 primeiros tweets carregados daquela coluna para o backend, que chama a OpenAI Responses API. Esse limite é aplicado também no backend para manter a chamada barata, rápida e mais robusta. A resposta é em português, curta e voltada para redação: principais assuntos, sinais de pauta/controvérsia e o que monitorar.
 
 A chamada é manual para evitar custo em todo refresh. A chave nunca vai para o frontend.
 
-Sem `OPENAI_API_KEY`, o backend retorna uma mensagem clara de configuração ausente e o restante do deck continua funcionando. Se a OpenAI responder sem texto, a interface mostra uma mensagem específica em vez de uma falha genérica.
+Sem `OPENAI_API_KEY`, o backend retorna uma mensagem clara de configuração ausente e o restante do deck continua funcionando. O endpoint também diferencia modelo inválido/sem acesso, rate limit, timeout, erro temporário da OpenAI e resposta sem texto utilizável. Esses erros aparecem no box do resumo sem alterar o restante da interface.
 
 ## Fase 2 Restaurada na Hotfix
 
@@ -229,7 +229,7 @@ python server.py
 ```
 
 Configure pelo menos `X_COOKIES_JSON`. Para alertas, configure também `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` e, opcionalmente, `ALERT_EMAILS` e `DECK_URL`.
-Para resumo IA, configure também `OPENAI_API_KEY` e, opcionalmente, `OPENAI_MODEL`.
+Para resumo IA, configure também `OPENAI_API_KEY` e, opcionalmente, `OPENAI_MODEL`. O modelo precisa ser compatível com a Responses API e estar liberado para a chave usada.
 
 ## Roadmap Técnico
 

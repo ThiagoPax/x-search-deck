@@ -10,7 +10,15 @@ from typing import Optional
 from aiohttp import web
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from email_alerts import get_scheduler
-from openai_service import OpenAIConfigError, OpenAIEmptyResponseError, summarize_column
+from openai_service import (
+    OpenAIConfigError,
+    OpenAIEmptyResponseError,
+    OpenAIModelError,
+    OpenAIRateLimitError,
+    OpenAITimeoutError,
+    OpenAIUpstreamError,
+    summarize_column,
+)
 
 logging.basicConfig(level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S")
@@ -389,11 +397,19 @@ class XDeckApp:
             return web.json_response({"summary": text})
         except OpenAIConfigError as e:
             return web.json_response({"error": str(e)}, status=400)
+        except OpenAIModelError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        except OpenAIRateLimitError as e:
+            return web.json_response({"error": str(e)}, status=429)
+        except OpenAITimeoutError as e:
+            return web.json_response({"error": str(e)}, status=504)
         except OpenAIEmptyResponseError as e:
             return web.json_response({"error": str(e)}, status=502)
+        except OpenAIUpstreamError as e:
+            return web.json_response({"error": str(e)}, status=502)
         except Exception as e:
-            log.error("Resumo IA falhou: %s", e)
-            return web.json_response({"error": str(e)[:180]}, status=502)
+            log.exception("Resumo IA falhou de forma inesperada")
+            return web.json_response({"error": "Erro inesperado ao gerar resumo IA. Verifique os logs do backend."}, status=502)
 
     async def ws_handler(self, request):
         ws = web.WebSocketResponse(heartbeat=30)
