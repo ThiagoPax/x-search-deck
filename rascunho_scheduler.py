@@ -1,68 +1,85 @@
-"""
-rascunho_scheduler.py — Lógica de janela de horário para envio de alertas
-Gerado externamente para uso como base no email_alerts.py
-"""
-import os
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, time
+import pytz
 
+class AlertScheduler:
+    def __init__(self):
+        # Define o fuso horário de São Paulo
+        self.tz = pytz.timezone("America/Sao_Paulo")
+        
+        # Janelas padrão: 
+        # 0-4 = Segunda a Sexta | 6 = Domingo
+        self.default_windows = [
+            {"days": [0, 1, 2, 3, 4], "start": "17:30", "end": "19:00"},
+            {"days": [6], "start": "20:30", "end": "23:00"}
+        ]
 
-def parse_windows(env_val: str) -> list[tuple[list[int], int, int, int, int]]:
-    """
-    Parseia janelas de envio de uma variável de ambiente.
-    Formato de cada janela (separadas por ';'):
-        DIAS HH:MM-HH:MM
-    onde DIAS é uma lista de inteiros 0-6 (seg=0, dom=6) separados por vírgula.
-    Exemplo: "0,1,2,3,4 17:30-19:00;6 20:30-23:00"
-    """
-    windows = []
-    for entry in env_val.split(";"):
-        entry = entry.strip()
-        if not entry:
-            continue
-        try:
-            days_part, time_part = entry.split(" ", 1)
-            days = [int(d) for d in days_part.split(",")]
-            start_str, end_str = time_part.split("-")
-            sh, sm = map(int, start_str.split(":"))
-            eh, em = map(int, end_str.split(":"))
-            windows.append((days, sh, sm, eh, em))
-        except Exception:
-            pass
-    return windows
+    def is_within_window(self, windows: list[dict] = None) -> bool:
+        """
+        Verifica se o horário atual (São Paulo) está dentro de alguma das janelas fornecidas.
+        Se windows for None, utiliza as janelas padrão da classe.
+        """
+        if windows is None:
+            windows = self.default_windows
 
+        # Obtém a data e hora atual no fuso de SP
+        now = datetime.now(self.tz)
+        current_weekday = now.weekday()  # 0=Segunda, 6=Domingo
+        current_time = now.time()
 
-def default_windows() -> list[tuple[list[int], int, int, int, int]]:
-    """
-    Janelas padrão se ALERT_WINDOWS não estiver configurado:
-      seg-sex 17:30-19:00
-      dom     20:30-23:00
-    """
-    return [
-        ([0, 1, 2, 3, 4], 17, 30, 19, 0),   # seg-sex
-        ([6],              20, 30, 23, 0),   # dom
-    ]
+        for window in windows:
+            if current_weekday in window["days"]:
+                # Converte strings "HH:MM" para objetos datetime.time para comparação
+                start_h, start_m = map(int, window["start"].split(":"))
+                end_h, end_m = map(int, window["end"].split(":"))
+                
+                start_time = time(start_h, start_m)
+                end_time = time(end_h, end_m)
 
+                if start_time <= current_time <= end_time:
+                    return True
+        
+        return False
 
-def is_within_send_window() -> bool:
-    """
-    Retorna True se o momento atual estiver dentro de alguma
-    janela de envio configurada.
-    Fuso: America/Sao_Paulo (ou ALERT_TZ se definido).
-    """
-    tz   = ZoneInfo(os.environ.get("ALERT_TZ", "America/Sao_Paulo"))
-    now  = datetime.now(tz)
-    wday = now.weekday()  # 0=seg … 6=dom
-    hm   = now.hour * 60 + now.minute
-
-    raw = os.environ.get("ALERT_WINDOWS", "")
-    windows = parse_windows(raw) if raw else default_windows()
-
-    for days, sh, sm, eh, em in windows:
-        if wday not in days:
-            continue
-        start = sh * 60 + sm
-        end   = eh * 60 + em
-        if start <= hm < end:
+    def should_send(self, last_sent: datetime, interval_minutes: int) -> bool:
+        """
+        Verifica se já passou o intervalo mínimo de minutos desde o último envio.
+        """
+        if last_sent is None:
             return True
-    return False
+
+        # Garante que o 'now' esteja no fuso de SP
+        now = datetime.now(self.tz)
+
+        # Tratamento para garantir que last_sent seja 'timezone aware' para evitar erro de comparação
+        if last_sent.tzinfo is None:
+            # Se for naive, assume-se que foi gravado no fuso de SP
+            last_sent = self.tz.localize(last_sent)
+        else:
+            # Se já tiver fuso, converte para o de SP
+            last_sent = last_sent.astimezone(self.tz)
+
+        diff = now - last_sent
+        minutes_passed = diff.total_seconds() / 60
+        
+        return minutes_passed >= interval_minutes
+
+# --- Exemplo de Uso ---
+if __name__ == "__main__":
+    scheduler = AlertScheduler()
+
+    # Testando janela de horário
+    if scheduler.is_within_window():
+        print("✅ Estamos dentro da janela de envio.")
+    else:
+        print("❌ Fora da janela de envio.")
+
+    # Testando intervalo de tempo
+    from datetime import timedelta
+    # Simula que o último e-mail foi enviado há 45 minutos
+    last_email_time = datetime.now(pytz.utc) - timedelta(minutes=45)
+    
+    # Se o intervalo mínimo for 60 min, deve retornar False
+    if scheduler.should_send(last_email_time, 60):
+        print("🚀 Pode enviar agora!")
+    else:
+        print("⏳ Intervalo mínimo ainda não atingido.")

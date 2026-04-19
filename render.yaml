@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: x-search-deck
+    runtime: python
+    region: ohio
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    envVars:
+      - key: X_COOKIES_JSON
+        sync: false
+      - key: REFRESH_INTERVAL
+        value: "90"
+      - key: MAX_TWEETS
+        value: "25"

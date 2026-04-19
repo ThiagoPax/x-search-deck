@@ -1,141 +1,123 @@
-/*
- * rascunho_interface.js — Trechos JS/CSS para interface.html
- * Gerado externamente; adaptar ao projeto X Search Deck
- *
- * Contém:
- *   1. localStorage — persistência de queries, nomes de colunas e sort
- *   2. Nomes editáveis por coluna (campo input acima da textarea)
- *   3. Badge de contador de novos tweets por coluna
- */
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Coluna Config & Badges</title>
+    <style>
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ccc; padding: 10px; text-align: left; }
+        
+        /* Essencial para o badge absoluto */
+        .col-header { 
+            position: relative; 
+            cursor: pointer; 
+            user-select: none;
+        }
 
-/* ─── 1. PERSISTÊNCIA COM localStorage ────────────────────────────────── */
+        /* Estilo do Badge */
+        .badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background-color: red;
+            color: white;
+            font-size: 11px;
+            font-weight: bold;
+            padding: 2px 6px;
+            border-radius: 10px;
+            pointer-events: none; /* Evita que o badge atrapalhe o clique no header */
+        }
+    </style>
+</head>
+<body>
 
-/** Salva o estado atual de todas as colunas */
-function saveColumnsState(numCols) {
-  const state = [];
-  for (let i = 0; i < numCols; i++) {
-    state.push({
-      query: document.getElementById(`q${i}`)?.value ?? '',
-      sort:  document.getElementById(`sort${i}`)?.value ?? 'live',
-      name:  document.getElementById(`colname${i}`)?.value ?? '',
-    });
-  }
-  try {
-    localStorage.setItem('xdeck_columns', JSON.stringify(state));
-    localStorage.setItem('xdeck_numcols', String(numCols));
-  } catch (_) {}
-}
+    <button onclick="simularNovoAlerta()">Simular Alerta em Coluna Aleatória</button>
+    
+    <table id="dataTable">
+        <thead>
+            <tr id="headerRow">
+                <!-- Colunas serão geradas via JS para demonstrar a restauração -->
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>Dados de exemplo...</td><td>...</td><td>...</td></tr>
+        </tbody>
+    </table>
 
-/** Restaura o estado salvo; retorna { numCols, columns } ou null */
-function loadColumnsState() {
-  try {
-    const raw = localStorage.getItem('xdeck_columns');
-    const nc  = localStorage.getItem('xdeck_numcols');
-    if (\!raw) return null;
-    return {
-      numCols: nc ? parseInt(nc, 10) : null,
-      columns: JSON.parse(raw),
-    };
-  } catch (_) {
-    return null;
-  }
-}
+    <script>
+        // Configurações iniciais
+        const STORAGE_KEY = 'table_col_config';
+        const defaultColumns = [
+            { query: 'SELECT name...', name: 'Nome', sort: 'asc' },
+            { query: 'SELECT age...', name: 'Idade', sort: 'desc' },
+            { query: 'SELECT city...', name: 'Cidade', sort: 'asc' }
+        ];
 
-/** Aplica o estado restaurado aos elementos do DOM */
-function applyColumnsState(state) {
-  if (\!state) return;
-  state.columns.forEach((col, i) => {
-    const q = document.getElementById(`q${i}`);
-    const s = document.getElementById(`sort${i}`);
-    const n = document.getElementById(`colname${i}`);
-    if (q && col.query \!== undefined) q.value = col.query;
-    if (s && col.sort  \!== undefined) s.value = col.sort;
-    if (n && col.name  \!== undefined) n.value = col.name;
-  });
-}
+        /**
+         * 1. Salva no localStorage o objeto de N colunas
+         */
+        function saveColumnConfig(config) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+        }
 
-/* ─── 2. CAMPO DE NOME EDITÁVEL POR COLUNA ────────────────────────────── */
-/*
- * HTML a inserir ACIMA da <textarea> dentro de .ch-top:
- *
- *   <input type="text"
- *          id="colname${i}"
- *          class="col-name-input"
- *          placeholder="Nome da coluna..."
- *          value="${esc(p.name || '')}"
- *          oninput="saveColumnsState(numCols)" />
- *
- * CSS:
- */
-const COL_NAME_CSS = `
-.col-name-input {
-  width: 100%;
-  background: transparent;
-  border: none;
-  border-bottom: .5px solid var(--border);
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 4px 4px;
-  outline: none;
-  margin-bottom: 4px;
-  letter-spacing: .3px;
-  transition: border-color .15s;
-}
-.col-name-input:focus { border-bottom-color: var(--blue); }
-.col-name-input::placeholder { color: #333; font-weight: 400; }
-`;
+        /**
+         * 2. Restaura as configurações ao carregar a página
+         */
+        function initTable() {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            const columns = saved ? JSON.parse(saved) : defaultColumns;
+            
+            // Salva as default caso não existam
+            if (!saved) saveColumnConfig(columns);
 
-/* ─── 3. BADGE DE NOVOS TWEETS ────────────────────────────────────────── */
-/*
- * HTML do badge (inserir dentro de .ch-bot, ao lado do .rbtn):
- *
- *   <span class="new-badge" id="badge${i}" style="display:none">0</span>
- *
- * CSS:
- */
-const BADGE_CSS = `
-.new-badge {
-  min-width: 16px;
-  height: 16px;
-  background: var(--blue);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 800;
-  border-radius: 8px;
-  padding: 0 4px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: transform .15s;
-}
-.new-badge:hover { transform: scale(1.15); }
-`;
+            const headerRow = document.getElementById('headerRow');
+            headerRow.innerHTML = ''; // Limpa
 
-/**
- * Incrementa o badge de uma coluna com `count` novos tweets.
- * @param {number} colIdx  — índice da coluna
- * @param {number} count   — quantidade de novos tweets detectados
- */
-function incrementBadge(colIdx, count) {
-  const badge = document.getElementById(`badge${colIdx}`);
-  if (\!badge || count <= 0) return;
-  const current = parseInt(badge.textContent, 10) || 0;
-  badge.textContent = current + count;
-  badge.style.display = 'inline-flex';
-}
+            columns.forEach((col, index) => {
+                const th = document.createElement('th');
+                th.className = 'col-header';
+                th.dataset.id = index;
+                th.innerText = col.name;
 
-/**
- * Limpa o badge ao clicar (chamar no onclick do badge).
- * @param {Event} e
- * @param {number} colIdx
- */
-function clearBadge(e, colIdx) {
-  e.stopPropagation();
-  const badge = document.getElementById(`badge${colIdx}`);
-  if (\!badge) return;
-  badge.textContent = '0';
-  badge.style.display = 'none';
-}
+                // Evento para remover o badge ao clicar
+                th.addEventListener('click', function() {
+                    const badge = this.querySelector('.badge');
+                    if (badge) badge.remove();
+                });
+
+                headerRow.appendChild(th);
+            });
+        }
+
+        /**
+         * 3. Cria o Badge de contador
+         */
+        function addBadge(columnId, count) {
+            const header = document.querySelector(`.col-header[data-id="${columnId}"]`);
+            if (!header) return;
+
+            // Verifica se já existe um badge para somar ou criar novo
+            let badge = header.querySelector('.badge');
+            if (badge) {
+                let currentCount = parseInt(badge.innerText);
+                badge.innerText = currentCount + count;
+            } else {
+                badge = document.createElement('div');
+                badge.className = 'badge';
+                badge.innerText = count;
+                header.appendChild(badge);
+            }
+        }
+
+        // Função auxiliar para testar os badges
+        function simularNovoAlerta() {
+            const colCount = document.querySelectorAll('.col-header').length;
+            const randomCol = Math.floor(Math.random() * colCount);
+            addBadge(randomCol, 1);
+        }
+
+        // Executa ao carregar a página
+        window.onload = initTable;
+    </script>
+</body>
+</html>
