@@ -14,7 +14,7 @@ html,body { height:100%; overflow:hidden; }
 body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); display:flex; flex-direction:column; }
 
 /* Topbar */
-#topbar { display:flex; align-items:center; gap:10px; padding:7px 14px; background:rgba(0,0,0,.92); border-bottom:.5px solid var(--border); flex-shrink:0; z-index:100; }
+#topbar { display:flex; align-items:center; gap:10px; padding:7px 14px; background:rgba(0,0,0,.92); border-bottom:.5px solid var(--border); flex-shrink:0; z-index:100; flex-wrap:wrap; }
 .logo { font-size:15px; font-weight:800; }
 .logo em { font-style:normal; color:var(--blue); }
 #conn-dot { width:7px; height:7px; border-radius:50%; background:#444; transition:background .3s; flex-shrink:0; }
@@ -25,7 +25,7 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
 .tbr { margin-left:auto; display:flex; gap:8px; align-items:center; }
 select.tb-sel, button.tb-btn { background:none; border:.5px solid var(--border); border-radius:20px; color:var(--muted); padding:4px 12px; font-size:11px; cursor:pointer; outline:none; transition:border-color .15s,color .15s; }
-select.tb-sel:hover, button.tb-btn:hover { border-color:var(--blue); color:var(--blue); }
+select.tb-sel:hover, button.tb-btn:hover, button.tb-btn.active { border-color:var(--blue); color:var(--blue); }
 button.tb-primary { background:var(--blue); border:none; border-radius:20px; color:#fff; padding:5px 14px; font-size:11px; font-weight:700; cursor:pointer; transition:opacity .15s; }
 button.tb-primary:hover { opacity:.88; }
 
@@ -45,9 +45,16 @@ button.tb-primary:hover { opacity:.88; }
 select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-radius:6px; color:var(--muted); padding:3px 7px; font-size:10px; outline:none; cursor:pointer; flex-shrink:0; }
 .col-meta { flex:1; font-size:10px; color:#3a3f44; white-space:nowrap; overflow:hidden; }
 .col-meta span { color:var(--muted); }
-.col-filters { display:grid; grid-template-columns:1fr 1fr auto auto auto; gap:5px; align-items:center; }
-.col-filters input[type="date"], .col-filters input[type="number"] { min-width:0; background:var(--bg); border:.5px solid var(--border); border-radius:6px; color:var(--muted); padding:3px 5px; font-size:10px; outline:none; color-scheme:dark; }
-.rt-toggle { display:flex; align-items:center; gap:4px; color:var(--muted); font-size:10px; white-space:nowrap; }
+.template-row { display:grid; grid-template-columns:minmax(0,1fr) auto auto auto; gap:5px; align-items:center; }
+.template-row select { min-width:0; background:var(--bg); border:.5px solid var(--border); border-radius:6px; color:var(--muted); padding:5px 7px; font-size:10px; outline:none; }
+.mini-btn { background:transparent; border:.5px solid var(--border); border-radius:6px; color:var(--muted); padding:5px 7px; font-size:10px; cursor:pointer; white-space:nowrap; }
+.mini-btn:hover { border-color:var(--blue); color:var(--blue); }
+.col-filters { display:grid; grid-template-columns:repeat(2,minmax(118px,1fr)); gap:7px; align-items:end; }
+.filter-field { display:flex; flex-direction:column; gap:3px; min-width:0; }
+.filter-field label { color:var(--muted); font-size:9.5px; font-weight:700; }
+.filter-field input[type="date"], .filter-field input[type="number"] { width:100%; min-width:0; background:var(--bg); border:.5px solid var(--border); border-radius:6px; color:var(--text); padding:6px 7px; font-size:11px; outline:none; color-scheme:dark; }
+.filter-toggles { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:8px 10px; align-items:center; padding-top:1px; }
+.rt-toggle { display:flex; align-items:center; gap:4px; color:var(--muted); font-size:10.5px; white-space:nowrap; }
 .rt-toggle input { accent-color:var(--blue); }
 .col-tools { display:flex; align-items:center; gap:5px; }
 .summary-box { display:none; background:rgba(29,155,240,.07); border:.5px solid rgba(29,155,240,.25); border-radius:8px; padding:8px 9px; color:var(--text); font-size:11.5px; line-height:1.55; white-space:pre-wrap; }
@@ -81,6 +88,12 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 .tw-handle { font-size:11px; color:var(--muted); line-height:1.3; }
 .tw-time { font-size:10px; color:var(--muted); flex-shrink:0; padding-top:1px; }
 .tw-text { font-size:12.5px; line-height:1.55; color:var(--text); margin-bottom:7px; word-break:break-word; }
+.kw-hit { background:rgba(255,212,0,.2); color:#fff2a8; border-radius:3px; padding:0 2px; }
+.tw-media { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; margin:8px 0 7px; border-radius:8px; overflow:hidden; }
+.tw-media.one { grid-template-columns:1fr; }
+.tw-media-item { position:relative; min-height:86px; background:var(--s1); overflow:hidden; }
+.tw-media-item img { width:100%; height:100%; max-height:230px; object-fit:cover; display:block; }
+.tw-media-kind { position:absolute; left:6px; bottom:6px; background:rgba(0,0,0,.72); color:#fff; border-radius:10px; padding:2px 6px; font-size:9px; font-weight:700; }
 .tw-metrics { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 .tw-m { display:flex; align-items:center; gap:3px; font-size:11px; color:#555; }
 .tw-actions { display:flex; align-items:center; gap:7px; margin-top:7px; }
@@ -91,6 +104,9 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 
 /* Column name */
 .col-name-wrap { position:relative; display:flex; align-items:center; justify-content:center; padding:4px 8px 2px; }
+.drag-handle { position:absolute; left:2px; top:2px; color:#3a3f44; cursor:grab; border:none; background:transparent; font-size:12px; padding:2px 4px; }
+.drag-handle:active { cursor:grabbing; }
+.col.drag-over { box-shadow:inset 0 0 0 1px var(--blue); }
 .col-name { font-size:11px; font-weight:700; color:var(--muted); text-align:center; background:none; border:none; border-bottom:.5px solid transparent; outline:none; cursor:text; width:100%; transition:border-color .15s,color .15s; }
 .col-name:focus { border-bottom-color:var(--blue); color:var(--text); }
 .col-badge { position:absolute; top:2px; right:4px; background:var(--blue); color:#fff; font-size:10px; font-weight:700; padding:1px 5px; border-radius:10px; pointer-events:none; display:none; }
@@ -139,6 +155,8 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 @media (max-width: 720px) {
   .alert-grid, .window-row, .col-filters { grid-template-columns:1fr; }
   .field.full, .windows { grid-column:auto; }
+  .template-row { grid-template-columns:1fr 1fr 1fr; }
+  .template-row select { grid-column:1 / -1; }
 }
 </style>
 </head>
@@ -157,6 +175,7 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
       <option value="6" selected>6 colunas</option>
     </select>
     <button class="tb-btn" onclick="subscribeAll()">↺ Atualizar</button>
+    <button class="tb-btn" id="live-btn" onclick="toggleLiveMode()" title="Mantém as colunas inscritas no auto-refresh do backend">Ao vivo</button>
     <button class="tb-btn" onclick="openQueue()">Fila</button>
     <button class="tb-btn" onclick="openAlertModal()">Alertas</button>
     <button class="tb-primary" onclick="subscribeAll()">▶ Iniciar busca</button>
@@ -294,6 +313,7 @@ let numCols = +(localStorage.getItem('xdeck_num_cols') || 6), ws = null, reconnT
 let seenUrls = {}, colResults = {};
 let alertConfig = null;
 let editorialQueue = loadQueue();
+let liveMode = localStorage.getItem('xdeck_live_mode') !== '0';
 
 // ── Grid ──────────────────────────────────────────────────
 function buildGrid() {
@@ -308,6 +328,7 @@ function buildGrid() {
     col.innerHTML = `
       <div class="col-head">
         <div class="col-name-wrap">
+          <button class="drag-handle" draggable="true" data-col="${i}" title="Arrastar coluna">⋮⋮</button>
           <input class="col-name" id="colname${i}" value="${esc(savedName)}" placeholder="Nome da coluna" maxlength="40">
           <span class="col-badge" id="badge${i}"></span>
         </div>
@@ -317,8 +338,8 @@ function buildGrid() {
         </div>
         <div class="ch-bot">
           <select class="sort-sel" id="sort${i}">
-            <option value="live" ${(loadColSort(i)||p.sort)==='live'?'selected':''}>Recentes</option>
-            <option value="top"  ${(loadColSort(i)||p.sort)==='top'?'selected':''}>Top</option>
+            <option value="live" ${(loadColSort(i)||p.sort)==='live'?'selected':''}>Recentes · X live</option>
+            <option value="top"  ${(loadColSort(i)||p.sort)==='top'?'selected':''}>Top · X top</option>
           </select>
           <div class="col-meta" id="meta${i}">—</div>
           <div class="col-tools">
@@ -328,15 +349,23 @@ function buildGrid() {
           <button class="rbtn" onclick="refreshOne(${i})" title="Refresh">↺</button>
         </div>
         <div class="summary-box" id="summary${i}"></div>
+        <div class="template-row">
+          <select id="tmpl${i}" title="Templates de query salvos">${templateOptions()}</select>
+          <button class="mini-btn" onclick="applyQueryTemplate(${i})" title="Aplicar template nesta coluna">Aplicar</button>
+          <button class="mini-btn" onclick="saveQueryTemplate(${i})" title="Salvar query atual como template">Salvar</button>
+          <button class="mini-btn" onclick="deleteQueryTemplate(${i})" title="Excluir template selecionado">Excluir</button>
+        </div>
         <div class="col-filters">
-          <input type="date" id="from${i}" value="${esc(loadColDateFrom(i) || '')}" title="Desde">
-          <input type="date" id="to${i}" value="${esc(loadColDateTo(i) || '')}" title="Até">
-          <input type="number" id="minf${i}" min="0" value="${esc(loadColMinFaves(i) || '')}" placeholder="likes" title="Mínimo de likes">
-          <input type="number" id="minrep${i}" min="0" value="${esc(loadColMinReplies(i) || '')}" placeholder="replies" title="Mínimo de replies">
-          <input type="number" id="minrt${i}" min="0" value="${esc(loadColMinRetweets(i) || '')}" placeholder="RTs" title="Mínimo de retweets">
-          <label class="rt-toggle" title="Excluir retweets"><input type="checkbox" id="nort${i}" ${loadColExcludeRt(i) ? 'checked' : ''}> sem RT</label>
-          <label class="rt-toggle" title="Exigir mídia"><input type="checkbox" id="media${i}" ${loadColFilterMedia(i) ? 'checked' : ''}> mídia</label>
-          <label class="rt-toggle" title="Exigir conta verificada"><input type="checkbox" id="verified${i}" ${loadColFilterVerified(i) ? 'checked' : ''}> verificado</label>
+          <div class="filter-field"><label for="from${i}">Desde</label><input type="date" id="from${i}" value="${esc(loadColDateFrom(i) || '')}" title="Desde"></div>
+          <div class="filter-field"><label for="to${i}">Até</label><input type="date" id="to${i}" value="${esc(loadColDateTo(i) || '')}" title="Até"></div>
+          <div class="filter-field"><label for="minf${i}">Likes mínimos</label><input type="number" id="minf${i}" min="0" value="${esc(loadColMinFaves(i) || '')}" placeholder="0" title="Mínimo de likes"></div>
+          <div class="filter-field"><label for="minrep${i}">Replies mínimos</label><input type="number" id="minrep${i}" min="0" value="${esc(loadColMinReplies(i) || '')}" placeholder="0" title="Mínimo de replies"></div>
+          <div class="filter-field"><label for="minrt${i}">RTs mínimos</label><input type="number" id="minrt${i}" min="0" value="${esc(loadColMinRetweets(i) || '')}" placeholder="0" title="Mínimo de retweets"></div>
+          <div class="filter-toggles">
+            <label class="rt-toggle" title="Excluir retweets"><input type="checkbox" id="nort${i}" ${loadColExcludeRt(i) ? 'checked' : ''}> sem RT</label>
+            <label class="rt-toggle" title="Exigir mídia"><input type="checkbox" id="media${i}" ${loadColFilterMedia(i) ? 'checked' : ''}> mídia</label>
+            <label class="rt-toggle" title="Exigir conta verificada"><input type="checkbox" id="verified${i}" ${loadColFilterVerified(i) ? 'checked' : ''}> verificado</label>
+          </div>
         </div>
       </div>
       <div class="col-body" id="body${i}">
@@ -360,6 +389,7 @@ function buildGrid() {
     document.getElementById(`verified${i}`).addEventListener('change', function() { saveColFilterVerified(i, this.checked); });
     // Clear badge when column body is clicked
     document.getElementById(`body${i}`).addEventListener('click', () => clearBadge(i), { capture: true });
+    setupColumnDrag(col, i);
   }
 }
 
@@ -368,6 +398,46 @@ function setColumns(n) {
   localStorage.setItem('xdeck_num_cols', String(n));
   buildGrid();
   subscribeAll();
+}
+
+function setupColumnDrag(colEl, colIdx) {
+  const handle = colEl.querySelector('.drag-handle');
+  if (!handle) return;
+  handle.addEventListener('dragstart', ev => {
+    ev.dataTransfer.setData('text/plain', String(colIdx));
+    ev.dataTransfer.effectAllowed = 'move';
+  });
+  colEl.addEventListener('dragover', ev => {
+    ev.preventDefault();
+    colEl.classList.add('drag-over');
+  });
+  colEl.addEventListener('dragleave', () => colEl.classList.remove('drag-over'));
+  colEl.addEventListener('drop', ev => {
+    ev.preventDefault();
+    colEl.classList.remove('drag-over');
+    const from = +ev.dataTransfer.getData('text/plain');
+    if (!Number.isInteger(from) || from === colIdx) return;
+    moveColumnState(from, colIdx);
+    buildGrid();
+    subscribeAll();
+  });
+}
+
+function moveColumnState(from, to) {
+  const fields = ['query','sort','name','date_from','date_to','min_faves','min_replies','min_retweets','exclude_rt','filter_media','filter_verified'];
+  const snap = [];
+  for (let i = 0; i < numCols; i++) {
+    const item = {};
+    fields.forEach(f => item[f] = localStorage.getItem(lsKey(i, f)));
+    snap.push(item);
+  }
+  const [moved] = snap.splice(from, 1);
+  snap.splice(to, 0, moved);
+  snap.forEach((item, i) => fields.forEach(f => {
+    const key = lsKey(i, f);
+    if (item[f] === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, item[f]);
+  }));
 }
 
 // ── WebSocket ─────────────────────────────────────────────
@@ -379,6 +449,8 @@ function connect() {
     reconnAttempts = 0;
     setDot('on', 'conectado');
     document.getElementById('overlay').classList.remove('show');
+    updateLiveButton();
+    if (liveMode) subscribeAll();
   };
   ws.onmessage = e => {
     let d; try { d = JSON.parse(e.data); } catch { return; }
@@ -413,7 +485,7 @@ function setDot(cls, label) {
 }
 
 // ── Subscriptions ─────────────────────────────────────────
-function subscribeAll() {
+function subscribeAll(options = {}) {
   if (!ws || ws.readyState !== WebSocket.OPEN) { connect(); return; }
   const cols = [];
   for (let i = 0; i < numCols; i++) {
@@ -431,13 +503,31 @@ function subscribeAll() {
       filter_verified: !!document.getElementById(`verified${i}`)?.checked,
     });
   }
-  ws.send(JSON.stringify({ type:'subscribe', columns:cols }));
+  ws.send(JSON.stringify({ type:'subscribe', columns:cols, refresh: options.refresh !== false }));
+  liveMode = true;
+  localStorage.setItem('xdeck_live_mode', '1');
+  updateLiveButton();
 }
 
 function refreshOne(idx) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  subscribeAll();
+  subscribeAll({ refresh:false });
   ws.send(JSON.stringify({ type:'refresh_one', column:idx }));
+}
+
+function toggleLiveMode() {
+  liveMode = !liveMode;
+  localStorage.setItem('xdeck_live_mode', liveMode ? '1' : '0');
+  updateLiveButton();
+  if (liveMode) subscribeAll();
+  else if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type:'subscribe', columns:[], refresh:false }));
+}
+
+function updateLiveButton() {
+  const btn = document.getElementById('live-btn');
+  if (!btn) return;
+  btn.classList.toggle('active', liveMode);
+  btn.textContent = liveMode ? 'Ao vivo ligado' : 'Ao vivo pausado';
 }
 
 // ── Handlers ──────────────────────────────────────────────
@@ -473,7 +563,7 @@ function handleResults({ column:col, tweets, updated, count }) {
   tweets.forEach(t => {
     const isNew = !!(t.url && !prev.has(t.url));
     if (isNew && prev.size > 0) newCount++;
-    frag.appendChild(renderTweet(t, isNew));
+    frag.appendChild(renderTweet(t, isNew, col));
   });
   body.innerHTML = '';
   body.appendChild(frag);
@@ -482,7 +572,7 @@ function handleResults({ column:col, tweets, updated, count }) {
 }
 
 // ── Render tweet ──────────────────────────────────────────
-function renderTweet(t, isNew) {
+function renderTweet(t, isNew, col) {
   const div = document.createElement('div');
   div.className = 'tweet' + (isNew ? ' new' : '');
   if (t.url) div.onclick = () => window.open(t.url, '_blank');
@@ -495,6 +585,8 @@ function renderTweet(t, isNew) {
    .map(([ic,v]) => `<span class="tw-m">${ic}<span>${esc(v)}</span></span>`).join('');
   const viral = viralSignal(t);
   const cred = credibilityScore(t);
+  const query = document.getElementById(`q${col}`)?.value || '';
+  const media = renderMedia(t.media || []);
   div.innerHTML = `
     <div class="tw-head">
       ${av}
@@ -504,7 +596,8 @@ function renderTweet(t, isNew) {
       </div>
       <div class="tw-time">${relTime(t.timestamp)}</div>
     </div>
-    <div class="tw-text">${escHtml(t.text)}</div>
+    <div class="tw-text">${highlightKeywords(t.text, query)}</div>
+    ${media}
     ${metrics ? `<div class="tw-metrics">${metrics}</div>` : ''}
     <div class="tw-actions">
       <button class="tw-chip" onclick="clipTweet(event, this)" title="Adicionar à fila editorial">Clip</button>
@@ -519,6 +612,42 @@ function renderTweet(t, isNew) {
 // ── Utils ─────────────────────────────────────────────────
 function esc(s) { return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function escHtml(s) { return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>'); }
+function regexEsc(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function keywordTerms(query) {
+  const stop = new Set(['and','or','not','lang','filter','min','since','until','from','para','com','sem','dos','das','que','uma','por']);
+  const terms = [];
+  const add = s => {
+    const t = String(s || '').trim();
+    const key = t.toLowerCase();
+    if (t.length >= 4 && !stop.has(key) && !terms.some(x => x.toLowerCase() === key)) terms.push(t);
+  };
+  for (const m of String(query || '').matchAll(/"([^"]{4,})"/g)) add(m[1]);
+  String(query || '')
+    .replace(/"[^"]+"/g, ' ')
+    .split(/[^A-Za-zÀ-ÿ0-9_@#-]+/)
+    .forEach(token => {
+      if (/^(OR|AND|NOT)$/i.test(token) || /^(min_|filter:|since:|until:|-?from:|lang:)/i.test(token)) return;
+      add(token.replace(/^-/, ''));
+    });
+  return terms.sort((a,b) => b.length - a.length).slice(0, 24);
+}
+function highlightKeywords(text, query) {
+  let html = escHtml(text);
+  const terms = keywordTerms(query);
+  if (!terms.length) return html;
+  const re = new RegExp(`(${terms.map(regexEsc).join('|')})`, 'gi');
+  return html.split('<br>').map(part => part.replace(re, '<mark class="kw-hit">$1</mark>')).join('<br>');
+}
+function renderMedia(media) {
+  const items = (Array.isArray(media) ? media : []).filter(m => m && m.url).slice(0, 4);
+  if (!items.length) return '';
+  const cls = items.length === 1 ? 'tw-media one' : 'tw-media';
+  return `<div class="${cls}">` + items.map(m => `
+    <div class="tw-media-item">
+      <img src="${esc(m.url)}" loading="lazy" alt="" onerror="this.closest('.tw-media-item').style.display='none'">
+      ${m.type && m.type !== 'photo' ? `<span class="tw-media-kind">${esc(String(m.type).toUpperCase())}</span>` : ''}
+    </div>`).join('') + `</div>`;
+}
 function initials(n) { return(n||'?').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
 function relTime(iso) {
   if (!iso) return '';
@@ -730,6 +859,64 @@ function setQueueStatus(msg) {
 }
 function escAttr(s) { return esc(s).replace(/'/g, '&#39;'); }
 
+// ── Templates de query ───────────────────────────────────
+function templatesKey() { return 'xdeck_query_templates'; }
+function loadQueryTemplates() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(templatesKey()) || '[]');
+    return Array.isArray(raw) ? raw.filter(t => t && t.name && typeof t.query === 'string') : [];
+  } catch { return []; }
+}
+function ensureDefaultTemplates() {
+  if (loadQueryTemplates().length) return;
+  saveQueryTemplates(PRESETS.filter(p => p.query).map(p => ({ name:p.label, query:p.query, sort:p.sort || 'live' })));
+}
+function saveQueryTemplates(items) {
+  localStorage.setItem(templatesKey(), JSON.stringify(items.slice(0, 80)));
+}
+function templateOptions() {
+  const items = loadQueryTemplates();
+  return `<option value="">Templates salvos...</option>` + items
+    .map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`)
+    .join('');
+}
+function refreshTemplateSelects(selected = '') {
+  for (let i = 0; i < numCols; i++) {
+    const sel = document.getElementById(`tmpl${i}`);
+    if (sel) {
+      sel.innerHTML = templateOptions();
+      sel.value = selected;
+    }
+  }
+}
+function saveQueryTemplate(col) {
+  const q = document.getElementById(`q${col}`)?.value.trim();
+  if (!q) return;
+  const currentName = document.getElementById(`colname${col}`)?.value.trim() || `Template ${new Date().toLocaleString('pt-BR')}`;
+  const name = prompt('Nome do template de query:', currentName);
+  if (!name) return;
+  const items = loadQueryTemplates().filter(t => t.name !== name.trim());
+  items.unshift({ name:name.trim(), query:q, sort:document.getElementById(`sort${col}`)?.value || 'live' });
+  saveQueryTemplates(items);
+  refreshTemplateSelects(name.trim());
+}
+function applyQueryTemplate(col) {
+  const name = document.getElementById(`tmpl${col}`)?.value;
+  if (!name) return;
+  const t = loadQueryTemplates().find(item => item.name === name);
+  if (!t) return;
+  const q = document.getElementById(`q${col}`);
+  const sort = document.getElementById(`sort${col}`);
+  if (q) { q.value = t.query || ''; saveColQuery(col, q.value); }
+  if (sort && t.sort) { sort.value = t.sort; saveColSort(col, sort.value); }
+}
+function deleteQueryTemplate(col) {
+  const name = document.getElementById(`tmpl${col}`)?.value;
+  if (!name) return;
+  saveQueryTemplates(loadQueryTemplates().filter(t => t.name !== name));
+  refreshTemplateSelects();
+}
+
 // ── localStorage helpers ──────────────────────────────────
 function lsKey(col, field) { return `xdeck_col${col}_${field}`; }
 function saveColQuery(col, v) { localStorage.setItem(lsKey(col,'query'), v); }
@@ -873,8 +1060,10 @@ function clearBadge(col) {
 
 const colsSel = document.getElementById('cols-sel');
 if (colsSel) colsSel.value = String(numCols);
+ensureDefaultTemplates();
 buildGrid();
 renderQueue();
+updateLiveButton();
 connect();
 </script>
 </body>

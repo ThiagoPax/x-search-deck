@@ -19,6 +19,10 @@ class OpenAIConfigError(RuntimeError):
     pass
 
 
+class OpenAIEmptyResponseError(RuntimeError):
+    pass
+
+
 def _compact_tweets(tweets: list[dict[str, Any]], limit: int = 60) -> str:
     rows = []
     for idx, t in enumerate(tweets[:limit], 1):
@@ -44,7 +48,7 @@ def _compact_tweets(tweets: list[dict[str, Any]], limit: int = 60) -> str:
 async def summarize_column(tweets: list[dict[str, Any]], column_name: str = "") -> str:
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not api_key:
-        raise OpenAIConfigError("OPENAI_API_KEY nao configurada")
+        raise OpenAIConfigError("OPENAI_API_KEY ausente no backend. Configure a variável de ambiente para usar o resumo IA.")
     if not tweets:
         return "Sem tweets suficientes para resumir esta coluna."
 
@@ -73,19 +77,36 @@ Tweets:
     }
     async with ClientSession() as session:
         async with session.post(OPENAI_API_URL, json=payload, headers=headers, timeout=45) as resp:
-            data = await resp.json(content_type=None)
+            try:
+                data = await resp.json(content_type=None)
+            except Exception:
+                body = await resp.text()
+                raise RuntimeError(f"OpenAI retornou resposta inválida: {body[:160]}")
             if resp.status >= 400:
                 msg = data.get("error", {}).get("message") if isinstance(data, dict) else ""
                 raise RuntimeError(msg or f"OpenAI retornou HTTP {resp.status}")
 
-    text = ""
-    if isinstance(data, dict):
-        text = data.get("output_text") or ""
-        if not text:
-            parts = []
-            for item in data.get("output", []) or []:
-                for content in item.get("content", []) or []:
-                    if content.get("type") in ("output_text", "text"):
-                        parts.append(content.get("text", ""))
-            text = "\n".join(p for p in parts if p).strip()
-    return text or "Nao foi possivel gerar um resumo neste momento."
+    text = _extract_response_text(data)
+    if not text:
+        raise OpenAIEmptyResponseError("A OpenAI respondeu sem texto para esta coluna. Tente novamente ou reduza a quantidade de tweets enviada.")
+    return text
+
+
+def _extract_response_text(data: Any) -> str:
+    if not isinstance(data, dict):
+        return ""
+    if isinstance(data.get("output_text"), str) and data["output_text"].strip():
+        return data["output_text"].strip()
+    parts: list[str] = []
+    for item in data.get("output", []) or []:
+        if not isinstance(item, dict):
+            continue
+        for content in item.get("content", []) or []:
+            if not isinstance(content, dict):
+                continue
+            text = content.get("text")
+            if isinstance(text, str) and text.strip():
+                parts.append(text.strip())
+            elif isinstance(text, dict) and isinstance(text.get("value"), str):
+                parts.append(text["value"].strip())
+    return "\n".join(p for p in parts if p).strip()
