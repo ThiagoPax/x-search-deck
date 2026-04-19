@@ -34,8 +34,8 @@ def _env_int(name: str, default: int) -> int:
 
 
 RESEND_API_URL = "https://api.resend.com/emails"
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
-RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "").strip()
+RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "").strip()
 RESEND_TIMEOUT = max(1, _env_int("RESEND_TIMEOUT", 20))
 ALERT_EMAILS_ENV = [e.strip() for e in os.environ.get("ALERT_EMAILS", "").split(",") if e.strip()]
 DATA_DIR = Path(os.environ.get("DATA_DIR", ".data"))
@@ -226,16 +226,41 @@ def _resend_error_detail(raw_body: str) -> str:
     return raw_body.strip()[:240]
 
 
+def _truncate_log_value(value: object, limit: int = 1200) -> str:
+    text = "" if value is None else str(value)
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}... [truncated {len(text) - limit} chars]"
+
+
+def _resend_safe_payload_for_log(payload: dict) -> dict:
+    html_body = str(payload.get("html") or "")
+    return {
+        "from": payload.get("from"),
+        "to": payload.get("to") or [],
+        "recipient_count": len(payload.get("to") or []),
+        "subject": payload.get("subject"),
+        "html_length": len(html_body),
+        "html_omitted": True,
+    }
+
+
 def _resend_http_error_message(status: int, raw_body: str) -> str:
     detail = _resend_error_detail(raw_body)
     detail_lower = detail.lower()
-    if status in (401, 403):
+    if status == 401:
+        if detail:
+            return f"Falha de autenticacao na Resend: {detail}."
+        return "Falha de autenticacao na Resend. Verifique RESEND_API_KEY."
+    if status == 403:
+        if detail:
+            return f"Resend retornou 403 Forbidden: {detail}."
         if any(term in detail_lower for term in ("domain", "sender", "from", "remetente")):
             return "Resend recusou o dominio ou remetente configurado em RESEND_FROM_EMAIL."
-        return "Falha de autenticacao/autorizacao na Resend. Verifique RESEND_API_KEY."
+        return "Resend retornou 403 Forbidden sem mensagem detalhada."
     if status in (400, 422):
         if any(term in detail_lower for term in ("domain", "sender", "from", "remetente")):
-            return "Resend recusou o dominio ou remetente configurado em RESEND_FROM_EMAIL."
+            return f"Resend recusou o dominio ou remetente configurado em RESEND_FROM_EMAIL: {detail}."
         return f"Resend recusou a requisicao de envio: {detail or 'dados invalidos'}."
     if status == 429:
         return "Resend limitou temporariamente o envio. Tente novamente em instantes."
@@ -277,6 +302,19 @@ def send_alert_email_result(subject: str, body_html: str, recipients: list[str] 
             "subject": subject,
             "html": body_html,
         }
+        safe_payload = _resend_safe_payload_for_log(payload)
+        log.info(
+            "Sending alert email via Resend: %s",
+            json.dumps(
+                {
+                    "resend_payload": safe_payload,
+                    "from_source": "RESEND_FROM_EMAIL",
+                    "api_url": RESEND_API_URL,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+        )
         request = urllib.request.Request(
             RESEND_API_URL,
             data=json.dumps(payload).encode("utf-8"),
@@ -292,11 +330,17 @@ def send_alert_email_result(subject: str, body_html: str, recipients: list[str] 
         if not 200 <= status <= 299:
             message = _resend_http_error_message(status, raw_body)
             log.error(
-                "Failed to send alert email via Resend: %s subject=%s recipients=%s status=%s",
+                "Failed to send alert email via Resend: %s %s",
                 message,
-                subject,
-                len(clean_recipients),
-                status,
+                json.dumps(
+                    {
+                        "resend_payload": safe_payload,
+                        "status": status,
+                        "response_body": _truncate_log_value(raw_body),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
             )
             return {
                 "ok": False,
@@ -310,10 +354,16 @@ def send_alert_email_result(subject: str, body_html: str, recipients: list[str] 
             response_data = {}
         if not isinstance(response_data, dict) or not response_data.get("id"):
             log.error(
-                "Unexpected Resend response while sending alert email: subject=%s recipients=%s status=%s",
-                subject,
-                len(clean_recipients),
-                status,
+                "Unexpected Resend response while sending alert email: %s",
+                json.dumps(
+                    {
+                        "resend_payload": safe_payload,
+                        "status": status,
+                        "response_body": _truncate_log_value(raw_body),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
             )
             return {
                 "ok": False,
@@ -321,7 +371,18 @@ def send_alert_email_result(subject: str, body_html: str, recipients: list[str] 
                 "recipients": clean_recipients,
                 "timestamp": timestamp,
             }
-        log.info("Alert email sent via Resend: subject=%s recipients=%s provider_id=%s", subject, len(clean_recipients), response_data.get("id"))
+        log.info(
+            "Alert email sent via Resend: %s",
+            json.dumps(
+                {
+                    "resend_payload": safe_payload,
+                    "status": status,
+                    "provider_id": response_data.get("id"),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+        )
         return {
             "ok": True,
             "message": "E-mail enviado com sucesso.",
@@ -332,12 +393,18 @@ def send_alert_email_result(subject: str, body_html: str, recipients: list[str] 
         raw_body = e.read().decode("utf-8", errors="replace")
         message = _resend_http_error_message(e.code, raw_body)
         log.error(
-            "Failed to send alert email via Resend: %s subject=%s recipients=%s status=%s error_type=%s",
+            "Failed to send alert email via Resend: %s %s",
             message,
-            subject,
-            len(clean_recipients),
-            e.code,
-            e.__class__.__name__,
+            json.dumps(
+                {
+                    "resend_payload": safe_payload if "safe_payload" in locals() else {},
+                    "status": e.code,
+                    "response_body": _truncate_log_value(raw_body),
+                    "error_type": e.__class__.__name__,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
         )
         return {
             "ok": False,
@@ -348,11 +415,16 @@ def send_alert_email_result(subject: str, body_html: str, recipients: list[str] 
     except Exception as e:
         message = _resend_transport_error_message(e)
         log.error(
-            "Failed to send alert email via Resend: %s subject=%s recipients=%s error_type=%s",
+            "Failed to send alert email via Resend: %s %s",
             message,
-            subject,
-            len(clean_recipients),
-            e.__class__.__name__,
+            json.dumps(
+                {
+                    "resend_payload": safe_payload if "safe_payload" in locals() else {},
+                    "error_type": e.__class__.__name__,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
         )
         return {
             "ok": False,
