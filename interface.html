@@ -37,7 +37,10 @@ button.tb-primary:hover { opacity:.88; }
 /* Col head */
 .col-head { background:var(--s1); border-bottom:.5px solid var(--border); padding:7px 8px 6px; display:flex; flex-direction:column; gap:5px; flex-shrink:0; }
 .ch-top { display:flex; align-items:flex-start; gap:5px; }
-.col-n { font-size:10px; color:#444; font-weight:800; min-width:14px; padding-top:5px; }
+.col-n { font-size:10px; color:#444; font-weight:800; min-width:14px; padding-top:5px; cursor:grab; user-select:none; }
+.col.dragging { opacity:.58; }
+.col.drop-left { box-shadow:inset 2px 0 0 var(--blue); }
+.col.drop-right { box-shadow:inset -2px 0 0 var(--blue); }
 .col-head textarea { flex:1; min-height:48px; max-height:90px; resize:none; overflow:auto; background:var(--bg); border:.5px solid var(--border); border-radius:7px; color:var(--text); padding:5px 8px; font-size:11px; line-height:1.5; font-family:"SF Mono","Cascadia Code","Consolas",monospace; outline:none; transition:border-color .15s; }
 .col-head textarea:focus { border-color:var(--blue); }
 .col-head textarea::placeholder { color:#333; }
@@ -46,9 +49,13 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 .col-meta { flex:1; font-size:10px; color:#3a3f44; white-space:nowrap; overflow:hidden; }
 .col-meta span { color:var(--muted); }
 .col-filters { display:grid; grid-template-columns:1fr 1fr auto; gap:5px; align-items:center; }
-.col-filters input[type="date"] { min-width:0; background:var(--bg); border:.5px solid var(--border); border-radius:6px; color:var(--muted); padding:3px 5px; font-size:10px; outline:none; color-scheme:dark; }
+.col-filters input[type="date"], .col-tools input, .col-tools select { min-width:0; background:var(--bg); border:.5px solid var(--border); border-radius:6px; color:var(--muted); padding:3px 5px; font-size:10px; outline:none; color-scheme:dark; }
+.col-tools { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto; gap:5px; align-items:center; }
+.tpl-save { background:none; border:.5px solid var(--border); border-radius:6px; color:var(--muted); height:23px; min-width:25px; cursor:pointer; font-size:11px; }
+.tpl-save:hover { color:var(--blue); border-color:var(--blue); }
 .rt-toggle { display:flex; align-items:center; gap:4px; color:var(--muted); font-size:10px; white-space:nowrap; }
 .rt-toggle input { accent-color:var(--blue); }
+.live-toggle input { accent-color:var(--red); }
 .sdot { width:5px; height:5px; border-radius:50%; background:#2a2a2a; flex-shrink:0; transition:background .3s; }
 .sdot.loading { background:var(--blue); animation:blink .8s infinite; }
 .sdot.ok      { background:var(--green); }
@@ -77,7 +84,14 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 .tw-name { font-size:12px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.3; }
 .tw-handle { font-size:11px; color:var(--muted); line-height:1.3; }
 .tw-time { font-size:10px; color:var(--muted); flex-shrink:0; padding-top:1px; }
+.tw-time.live { color:var(--red); font-weight:800; }
 .tw-text { font-size:12.5px; line-height:1.55; color:var(--text); margin-bottom:7px; word-break:break-word; }
+.kw-hit { background:rgba(255,212,0,.22); color:#f5f5f5; border-radius:3px; padding:0 1px; }
+.tw-media { display:grid; gap:4px; margin:8px 0 7px; border:.5px solid var(--border); border-radius:8px; overflow:hidden; background:var(--s1); }
+.tw-media.count-2, .tw-media.count-3, .tw-media.count-4 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.tw-media-item { position:relative; min-height:86px; background:var(--s2); overflow:hidden; }
+.tw-media img { width:100%; height:100%; min-height:86px; max-height:220px; object-fit:cover; display:block; }
+.media-badge { position:absolute; left:6px; bottom:6px; background:rgba(0,0,0,.72); color:#fff; border:.5px solid rgba(255,255,255,.18); border-radius:12px; padding:2px 7px; font-size:10px; font-weight:800; }
 .tw-metrics { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 .tw-m { display:flex; align-items:center; gap:3px; font-size:11px; color:#555; }
 
@@ -259,17 +273,23 @@ lang:pt`},
 let numCols = +(localStorage.getItem('xdeck_num_cols') || 6), ws = null, reconnTimer = null, reconnAttempts = 0;
 let seenUrls = {}, colResults = {};
 let alertConfig = null;
+let colOrder = normalizeColOrder(readJson('xdeck_col_order', null));
+let queryTemplates = loadQueryTemplates();
 
 // ── Grid ──────────────────────────────────────────────────
 function buildGrid() {
   const grid = document.getElementById('grid');
   grid.innerHTML = '';
+  colOrder = normalizeColOrder(colOrder);
   for (let i = 0; i < numCols; i++) {
-    const p = PRESETS[i] || { label:`Coluna ${i+1}`, query:'', sort:'live' };
+    const colId = colOrder[i];
+    const p = PRESETS[colId] || { label:`Coluna ${colId+1}`, query:'', sort:'live' };
     if (!seenUrls[i]) seenUrls[i] = new Set();
     const col = document.createElement('div');
     col.className = 'col'; col.id = `col-${i}`;
-    const savedName = loadColName(i) || p.label || `Coluna ${i+1}`;
+    col.dataset.pos = i;
+    col.dataset.colId = colId;
+    const savedName = loadColName(colId) || p.label || `Coluna ${i+1}`;
     col.innerHTML = `
       <div class="col-head">
         <div class="col-name-wrap">
@@ -277,22 +297,28 @@ function buildGrid() {
           <span class="col-badge" id="badge${i}"></span>
         </div>
         <div class="ch-top">
-          <span class="col-n">${i+1}</span>
-          <textarea id="q${i}" spellcheck="false" placeholder="Query...">${esc(loadColQuery(i) ?? p.query)}</textarea>
+          <span class="col-n" title="Arraste para reorganizar">${i+1}</span>
+          <textarea id="q${i}" spellcheck="false" placeholder="Query...">${esc(loadColQuery(colId) ?? p.query)}</textarea>
         </div>
         <div class="ch-bot">
           <select class="sort-sel" id="sort${i}">
-            <option value="live" ${(loadColSort(i)||p.sort)==='live'?'selected':''}>Recentes</option>
-            <option value="top"  ${(loadColSort(i)||p.sort)==='top'?'selected':''}>Top</option>
+            <option value="live" ${(loadColSort(colId)||p.sort)==='live'?'selected':''}>Recentes</option>
+            <option value="top"  ${(loadColSort(colId)||p.sort)==='top'?'selected':''}>Top</option>
           </select>
           <div class="col-meta" id="meta${i}">—</div>
           <div class="sdot" id="sdot${i}"></div>
           <button class="rbtn" onclick="refreshOne(${i})" title="Refresh">↺</button>
         </div>
         <div class="col-filters">
-          <input type="date" id="from${i}" value="${esc(loadColDateFrom(i) || '')}" title="Desde">
-          <input type="date" id="to${i}" value="${esc(loadColDateTo(i) || '')}" title="Até">
-          <label class="rt-toggle" title="Excluir retweets"><input type="checkbox" id="nort${i}" ${loadColExcludeRt(i) ? 'checked' : ''}> sem RT</label>
+          <input type="date" id="from${i}" value="${esc(loadColDateFrom(colId) || '')}" title="Desde">
+          <input type="date" id="to${i}" value="${esc(loadColDateTo(colId) || '')}" title="Até">
+          <label class="rt-toggle" title="Excluir retweets"><input type="checkbox" id="nort${i}" ${loadColExcludeRt(colId) ? 'checked' : ''}> sem RT</label>
+        </div>
+        <div class="col-tools">
+          <select id="tpl${i}" title="Aplicar template">${renderTemplateOptions()}</select>
+          <input id="kw${i}" value="${esc(loadColKeywords(colId) || '')}" placeholder="keywords">
+          <button class="tpl-save" onclick="saveTemplateFromColumn(${i})" title="Salvar template">★</button>
+          <label class="rt-toggle live-toggle" title="Modo ao vivo"><input type="checkbox" id="live${i}" ${loadColLive(colId) ? 'checked' : ''}> ao vivo</label>
         </div>
       </div>
       <div class="col-body" id="body${i}">
@@ -303,20 +329,26 @@ function buildGrid() {
     qEl.addEventListener('keydown', e => {
       if (e.ctrlKey && e.key === 'Enter') subscribeAll();
     });
-    qEl.addEventListener('input', () => saveColQuery(i, qEl.value));
-    document.getElementById(`sort${i}`).addEventListener('change', function() { saveColSort(i, this.value); });
-    document.getElementById(`colname${i}`).addEventListener('input', function() { saveColName(i, this.value); });
-    document.getElementById(`from${i}`).addEventListener('change', function() { saveColDateFrom(i, this.value); });
-    document.getElementById(`to${i}`).addEventListener('change', function() { saveColDateTo(i, this.value); });
-    document.getElementById(`nort${i}`).addEventListener('change', function() { saveColExcludeRt(i, this.checked); });
+    qEl.addEventListener('input', () => saveColQuery(colId, qEl.value));
+    document.getElementById(`sort${i}`).addEventListener('change', function() { saveColSort(colId, this.value); });
+    document.getElementById(`colname${i}`).addEventListener('input', function() { saveColName(colId, this.value); });
+    document.getElementById(`from${i}`).addEventListener('change', function() { saveColDateFrom(colId, this.value); });
+    document.getElementById(`to${i}`).addEventListener('change', function() { saveColDateTo(colId, this.value); });
+    document.getElementById(`nort${i}`).addEventListener('change', function() { saveColExcludeRt(colId, this.checked); });
+    document.getElementById(`kw${i}`).addEventListener('input', function() { saveColKeywords(colId, this.value); rerenderColumn(i); });
+    document.getElementById(`live${i}`).addEventListener('change', function() { saveColLive(colId, this.checked); });
+    document.getElementById(`tpl${i}`).addEventListener('change', function() { applyTemplateToColumn(i, this.value); });
     // Clear badge when column body is clicked
     document.getElementById(`body${i}`).addEventListener('click', () => clearBadge(i), { capture: true });
+    bindColumnDrag(col, col.querySelector('.col-n'));
   }
 }
 
 function setColumns(n) {
   numCols = n;
   localStorage.setItem('xdeck_num_cols', String(n));
+  colOrder = normalizeColOrder(colOrder);
+  saveColOrder();
   buildGrid();
   subscribeAll();
 }
@@ -375,6 +407,7 @@ function subscribeAll() {
       date_from: document.getElementById(`from${i}`)?.value || '',
       date_to: document.getElementById(`to${i}`)?.value || '',
       exclude_retweets: !!document.getElementById(`nort${i}`)?.checked,
+      live_mode: !!document.getElementById(`live${i}`)?.checked,
     });
   }
   ws.send(JSON.stringify({ type:'subscribe', columns:cols }));
@@ -405,6 +438,11 @@ function handleStatus({ column:col, status, message }) {
 function handleResults({ column:col, tweets, updated, count }) {
   const meta = document.getElementById(`meta${col}`);
   if (meta) meta.innerHTML = `<span>${count} tweets</span> · ${updated}`;
+  colResults[col] = tweets || [];
+  renderColumnResults(col, tweets || []);
+}
+
+function renderColumnResults(col, tweets) {
   const body = document.getElementById(`body${col}`);
   if (!body) return;
   body.querySelectorAll('.col-error').forEach(e => e.remove());
@@ -418,16 +456,21 @@ function handleResults({ column:col, tweets, updated, count }) {
   tweets.forEach(t => {
     const isNew = !!(t.url && !prev.has(t.url));
     if (isNew && prev.size > 0) newCount++;
-    frag.appendChild(renderTweet(t, isNew));
+    frag.appendChild(renderTweet(t, isNew, col));
   });
   body.innerHTML = '';
   body.appendChild(frag);
+  if (document.getElementById(`live${col}`)?.checked) body.scrollTop = 0;
   seenUrls[col] = new Set(tweets.map(t=>t.url).filter(Boolean));
   if (newCount > 0) showBadge(col, newCount);
 }
 
+function rerenderColumn(col) {
+  if (colResults[col]) renderColumnResults(col, colResults[col]);
+}
+
 // ── Render tweet ──────────────────────────────────────────
-function renderTweet(t, isNew) {
+function renderTweet(t, isNew, col) {
   const div = document.createElement('div');
   div.className = 'tweet' + (isNew ? ' new' : '');
   if (t.url) div.onclick = () => window.open(t.url, '_blank');
@@ -438,6 +481,9 @@ function renderTweet(t, isNew) {
     [iReply, t.replies], [iRT, t.retweets], [iLike, t.likes], [iViews, t.views]
   ].filter(([,v]) => v && v !== '0')
    .map(([ic,v]) => `<span class="tw-m">${ic}<span>${esc(v)}</span></span>`).join('');
+  const live = !!document.getElementById(`live${col}`)?.checked;
+  const textHtml = highlightText(t.text, getKeywordsForColumn(col));
+  const media = renderMedia(t.media || []);
   div.innerHTML = `
     <div class="tw-head">
       ${av}
@@ -445,9 +491,10 @@ function renderTweet(t, isNew) {
         <div class="tw-name">${esc(t.author_name)}</div>
         <div class="tw-handle">${esc(t.author_handle)}</div>
       </div>
-      <div class="tw-time">${relTime(t.timestamp)}</div>
+      <div class="tw-time${live ? ' live' : ''}">${live ? 'AO VIVO · ' : ''}${relTime(t.timestamp)}</div>
     </div>
-    <div class="tw-text">${escHtml(t.text)}</div>
+    <div class="tw-text">${textHtml}</div>
+    ${media}
     ${metrics ? `<div class="tw-metrics">${metrics}</div>` : ''}`;
   return div;
 }
@@ -455,6 +502,7 @@ function renderTweet(t, isNew) {
 // ── Utils ─────────────────────────────────────────────────
 function esc(s) { return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function escHtml(s) { return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>'); }
+function escReg(s) { return (s||'').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function initials(n) { return(n||'?').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
 function relTime(iso) {
   if (!iso) return '';
@@ -464,6 +512,47 @@ function relTime(iso) {
   if (s<3600)  return `${Math.round(s/60)}min`;
   if (s<86400) return `${Math.round(s/3600)}h`;
   return `${Math.round(s/86400)}d`;
+}
+function splitTerms(raw) {
+  return Array.from(new Set((raw || '')
+    .split(/[\n,;|]+/)
+    .map(t => t.trim())
+    .filter(t => t.length >= 3)
+    .slice(0, 12)));
+}
+function deriveKeywords(query) {
+  const blocked = new Set(['and','or','lang','from','filter','min_replies','since','until','the','com','sem']);
+  return Array.from(new Set((query || '')
+    .replace(/"([^"]+)"/g, ' $1 ')
+    .split(/[^A-Za-zÀ-ÿ0-9_]+/)
+    .map(t => t.trim())
+    .filter(t => t.length >= 4 && !blocked.has(t.toLowerCase()) && !/^\d+$/.test(t))
+    .slice(0, 10)));
+}
+function getKeywordsForColumn(col) {
+  const explicit = splitTerms(document.getElementById(`kw${col}`)?.value || '');
+  if (explicit.length) return explicit;
+  return deriveKeywords(document.getElementById(`q${col}`)?.value || '');
+}
+function highlightText(text, terms) {
+  const raw = text || '';
+  if (!raw) return '';
+  const cleanTerms = (terms || []).filter(Boolean).sort((a,b) => b.length - a.length);
+  if (!cleanTerms.length) return escHtml(raw);
+  const rx = new RegExp(`(${cleanTerms.map(escReg).join('|')})`, 'gi');
+  return raw.split(rx).map(part => {
+    const hit = cleanTerms.some(t => t.toLowerCase() === part.toLowerCase());
+    return hit ? `<mark class="kw-hit">${escHtml(part)}</mark>` : escHtml(part);
+  }).join('');
+}
+function renderMedia(items) {
+  const media = (items || []).filter(m => m && m.url).slice(0, 4);
+  if (!media.length) return '';
+  return `<div class="tw-media count-${media.length}" onclick="event.stopPropagation()">${media.map(m => `
+    <a class="tw-media-item" href="${esc(m.url)}" target="_blank" rel="noopener noreferrer">
+      <img src="${esc(m.url)}" loading="lazy" alt="">
+      ${m.type && m.type !== 'photo' ? `<span class="media-badge">${esc(m.type.toUpperCase())}</span>` : ''}
+    </a>`).join('')}</div>`;
 }
 function svgI(path) { return `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="${path}"/></svg>`; }
 const iReply = svgI('M1.751 10c0-4.42 3.584-8 8.005-8h4.246C18.484 2 22 5.58 22 10c0 4.423-3.516 8.003-7.998 8.003h-.013l-4.262.002a8.44 8.44 0 0 1-3.024-.555l-3.49 1.093a.75.75 0 0 1-.917-.916l1.065-3.395A8.04 8.04 0 0 1 1.751 10Z');
@@ -480,12 +569,120 @@ function saveColName(col, v)  { localStorage.setItem(lsKey(col,'name'),  v); }
 function saveColDateFrom(col, v) { localStorage.setItem(lsKey(col,'date_from'), v); }
 function saveColDateTo(col, v)   { localStorage.setItem(lsKey(col,'date_to'), v); }
 function saveColExcludeRt(col, v){ localStorage.setItem(lsKey(col,'exclude_rt'), v ? '1' : '0'); }
+function saveColKeywords(col, v) { localStorage.setItem(lsKey(col,'keywords'), v); }
+function saveColLive(col, v)     { localStorage.setItem(lsKey(col,'live'), v ? '1' : '0'); }
 function loadColQuery(col)    { return localStorage.getItem(lsKey(col,'query')); }
 function loadColSort(col)     { return localStorage.getItem(lsKey(col,'sort')); }
 function loadColName(col)     { return localStorage.getItem(lsKey(col,'name')); }
 function loadColDateFrom(col) { return localStorage.getItem(lsKey(col,'date_from')); }
 function loadColDateTo(col)   { return localStorage.getItem(lsKey(col,'date_to')); }
 function loadColExcludeRt(col){ return localStorage.getItem(lsKey(col,'exclude_rt')) === '1'; }
+function loadColKeywords(col) { return localStorage.getItem(lsKey(col,'keywords')); }
+function loadColLive(col)     { return localStorage.getItem(lsKey(col,'live')) === '1'; }
+
+function readJson(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function normalizeColOrder(order) {
+  const base = Array.isArray(order) ? order.map(Number).filter(Number.isInteger) : [];
+  const seen = new Set();
+  const out = [];
+  base.forEach(id => {
+    if (id >= 0 && !seen.has(id)) { seen.add(id); out.push(id); }
+  });
+  for (let i = 0; out.length < numCols; i++) {
+    if (!seen.has(i)) { seen.add(i); out.push(i); }
+  }
+  return out.slice(0, numCols);
+}
+function saveColOrder() {
+  localStorage.setItem('xdeck_col_order', JSON.stringify(colOrder));
+}
+function bindColumnDrag(col, handle) {
+  if (!handle) return;
+  handle.draggable = true;
+  handle.addEventListener('dragstart', e => {
+    col.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', col.dataset.pos);
+  });
+  handle.addEventListener('dragend', () => {
+    document.querySelectorAll('.col').forEach(c => c.classList.remove('dragging','drop-left','drop-right'));
+  });
+  col.addEventListener('dragover', e => {
+    e.preventDefault();
+    const rect = col.getBoundingClientRect();
+    const after = e.clientX > rect.left + rect.width / 2;
+    col.classList.toggle('drop-left', !after);
+    col.classList.toggle('drop-right', after);
+  });
+  col.addEventListener('dragleave', () => col.classList.remove('drop-left','drop-right'));
+  col.addEventListener('drop', e => {
+    e.preventDefault();
+    const from = +e.dataTransfer.getData('text/plain');
+    const to = +col.dataset.pos;
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from === to) return;
+    const rect = col.getBoundingClientRect();
+    const insertAfter = e.clientX > rect.left + rect.width / 2;
+    const moved = colOrder.splice(from, 1)[0];
+    let target = to;
+    if (from < to) target--;
+    colOrder.splice(insertAfter ? target + 1 : target, 0, moved);
+    colOrder = normalizeColOrder(colOrder);
+    saveColOrder();
+    seenUrls = {};
+    colResults = {};
+    buildGrid();
+    subscribeAll();
+  });
+}
+function loadQueryTemplates() {
+  const saved = readJson('xdeck_query_templates', []);
+  return Array.isArray(saved) ? saved.filter(t => t && t.name && typeof t.query === 'string') : [];
+}
+function saveQueryTemplates() {
+  localStorage.setItem('xdeck_query_templates', JSON.stringify(queryTemplates.slice(0, 30)));
+}
+function renderTemplateOptions() {
+  const opts = [`<option value="">Templates</option>`];
+  PRESETS.forEach((p, idx) => opts.push(`<option value="preset:${idx}">${esc(p.label)}</option>`));
+  queryTemplates.forEach((t, idx) => opts.push(`<option value="saved:${idx}">${esc(t.name)}</option>`));
+  return opts.join('');
+}
+function getTemplate(ref) {
+  const [kind, rawIdx] = (ref || '').split(':');
+  const idx = +rawIdx;
+  if (kind === 'preset') return PRESETS[idx];
+  if (kind === 'saved') return queryTemplates[idx];
+  return null;
+}
+function applyTemplateToColumn(col, ref) {
+  const tpl = getTemplate(ref);
+  const sel = document.getElementById(`tpl${col}`);
+  if (sel) sel.value = '';
+  if (!tpl) return;
+  const q = document.getElementById(`q${col}`);
+  const s = document.getElementById(`sort${col}`);
+  const logicalId = colOrder[col];
+  if (q) { q.value = tpl.query || ''; saveColQuery(logicalId, q.value); }
+  if (s && tpl.sort) { s.value = tpl.sort; saveColSort(logicalId, s.value); }
+}
+function saveTemplateFromColumn(col) {
+  const query = document.getElementById(`q${col}`)?.value || '';
+  if (!query.trim()) return;
+  const fallback = document.getElementById(`colname${col}`)?.value || `Template ${queryTemplates.length + 1}`;
+  const name = prompt('Nome do template', fallback);
+  if (!name) return;
+  queryTemplates = queryTemplates.filter(t => t.name !== name.trim());
+  queryTemplates.unshift({ name:name.trim(), query, sort:document.getElementById(`sort${col}`)?.value || 'live' });
+  saveQueryTemplates();
+  buildGrid();
+}
 
 // ── Alert config ─────────────────────────────────────────
 async function openAlertModal() {
