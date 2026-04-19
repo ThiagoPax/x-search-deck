@@ -1509,7 +1509,7 @@ async function sendTestEmail() {
     btn.disabled = true;
     btn.textContent = 'Enviando...';
   }
-  setAlertStatus('testando SMTP...');
+  setAlertStatus('testando e-mail...');
   try {
     const r = await fetch('/api/alerts/test-email', {
       method:'POST',
