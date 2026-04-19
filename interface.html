@@ -190,6 +190,18 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
         <input id="alert-preview" type="number" min="0" max="240" value="30">
       </div>
       <div class="field">
+        <label for="alert-silence-minutes">Silêncio editorial (min)</label>
+        <input id="alert-silence-minutes" type="number" min="1" max="240" value="30">
+      </div>
+      <div class="field">
+        <label for="alert-silence-enabled">Alerta de silêncio</label>
+        <label class="rt-toggle" style="justify-content:flex-start"><input type="checkbox" id="alert-silence-enabled"> Ativar</label>
+      </div>
+      <div class="field">
+        <label for="alert-final-digest-enabled">Digest final</label>
+        <label class="rt-toggle" style="justify-content:flex-start"><input type="checkbox" id="alert-final-digest-enabled"> Enviar ao fim da janela</label>
+      </div>
+      <div class="field">
         <label for="alert-deck-url">URL do deck</label>
         <input id="alert-deck-url" type="url" placeholder="https://...">
       </div>
@@ -502,6 +514,9 @@ function fillAlertForm(cfg) {
   document.getElementById('alert-spike-replies').value = cfg.spike_replies || 500;
   document.getElementById('alert-spike-minutes').value = cfg.spike_minutes || 10;
   document.getElementById('alert-preview').value = cfg.preview_minutes ?? 30;
+  document.getElementById('alert-silence-enabled').checked = !!cfg.silence_alert_enabled;
+  document.getElementById('alert-silence-minutes').value = cfg.silence_minutes || 30;
+  document.getElementById('alert-final-digest-enabled').checked = !!cfg.final_digest_enabled;
   document.getElementById('alert-deck-url').value = cfg.deck_url || location.origin;
   const holder = document.getElementById('alert-windows');
   holder.innerHTML = '';
@@ -538,6 +553,9 @@ function readAlertForm() {
     spike_replies: +document.getElementById('alert-spike-replies').value || 500,
     spike_minutes: +document.getElementById('alert-spike-minutes').value || 10,
     preview_minutes: +document.getElementById('alert-preview').value || 0,
+    silence_alert_enabled: document.getElementById('alert-silence-enabled').checked,
+    silence_minutes: +document.getElementById('alert-silence-minutes').value || 30,
+    final_digest_enabled: document.getElementById('alert-final-digest-enabled').checked,
     deck_url: document.getElementById('alert-deck-url').value.trim(),
     windows,
   };

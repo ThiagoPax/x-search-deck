@@ -32,6 +32,7 @@ SMTP_PASS = os.environ.get("SMTP_PASS", "")
 ALERT_EMAILS_ENV = [e.strip() for e in os.environ.get("ALERT_EMAILS", "").split(",") if e.strip()]
 DATA_DIR = Path(os.environ.get("DATA_DIR", ".data"))
 ALERT_CONFIG_PATH = Path(os.environ.get("ALERT_CONFIG_PATH", DATA_DIR / "alert_config.json"))
+ALERT_STATE_PATH = Path(os.environ.get("ALERT_STATE_PATH", DATA_DIR / "alert_state.json"))
 
 DEFAULT_CONFIG = {
     "enabled": True,
@@ -41,6 +42,9 @@ DEFAULT_CONFIG = {
     "spike_replies": 500,
     "spike_minutes": 10,
     "preview_minutes": 30,
+    "silence_alert_enabled": False,
+    "silence_minutes": 30,
+    "final_digest_enabled": False,
     "deck_url": os.environ.get("DECK_URL", ""),
     "windows": [
         {
@@ -75,6 +79,9 @@ def _merge_config(raw: dict) -> dict:
         "spike_replies",
         "spike_minutes",
         "preview_minutes",
+        "silence_alert_enabled",
+        "silence_minutes",
+        "final_digest_enabled",
         "deck_url",
         "windows",
     ):
@@ -101,7 +108,10 @@ def _sanitize_config(cfg: dict) -> dict:
     int_between("spike_replies", 500, 1, 1_000_000)
     int_between("spike_minutes", 10, 1, 240)
     int_between("preview_minutes", 30, 0, 240)
+    int_between("silence_minutes", 30, 1, 240)
     cfg["enabled"] = bool(cfg.get("enabled", True))
+    cfg["silence_alert_enabled"] = bool(cfg.get("silence_alert_enabled", False))
+    cfg["final_digest_enabled"] = bool(cfg.get("final_digest_enabled", False))
     cfg["deck_url"] = str(cfg.get("deck_url") or "").strip()
 
     windows = []
@@ -192,7 +202,7 @@ def send_alert_email(subject: str, body_html: str, recipients: list[str]) -> boo
         return False
 
 
-def _build_email_html(title: str, sections: list[dict], deck_url: str = "") -> str:
+def _build_email_html(title: str, sections: list[dict], deck_url: str = "", intro: str = "") -> str:
     rows = ""
     for sec in sections:
         tweets = sec.get("tweets") or []
@@ -211,9 +221,13 @@ def _build_email_html(title: str, sections: list[dict], deck_url: str = "") -> s
     deck_button = ""
     if deck_url:
         deck_button = f"""<p style="margin:18px 0"><a href="{html.escape(deck_url)}" style="background:#1d9bf0;color:#fff;text-decoration:none;border-radius:18px;padding:9px 16px;font-weight:700">Abrir Deck</a></p>"""
+    intro_html = ""
+    if intro:
+        intro_html = f"""<p style="color:#e7e9ea;font-size:13px;line-height:1.5">{html.escape(intro)}</p>"""
     return f"""<html><body style="background:#000;color:#e7e9ea;font-family:Arial,sans-serif;padding:20px">
 <h2 style="color:#1d9bf0">{html.escape(title)}</h2>
 {deck_button}
+{intro_html}
 {rows or '<p style="color:#71767b">Sem tweets acima do threshold no momento.</p>'}
 </body></html>"""
 
@@ -222,11 +236,17 @@ class AlertScheduler:
     def __init__(self):
         self.tz = pytz.timezone("America/Sao_Paulo")
         self.config = self.load_config()
+        self._state = self.load_state()
         self._last_sent: Optional[datetime] = None
         self._tweet_first_seen: dict[str, datetime] = {}
         self._alerted_spikes: set[str] = set()
         self._latest_by_col: dict[int, dict] = {}
         self._sent_previews: set[str] = set()
+        self._sent_silence_alerts: set[str] = set(self._state.get("sent_silence_alerts", []))
+        self._sent_final_digests: set[str] = set(self._state.get("sent_final_digests", []))
+        self._window_tweets: dict[str, dict[int, dict]] = {}
+        self._window_seen_tweets: dict[str, set[str]] = {}
+        self._window_last_relevant_at: dict[str, datetime] = {}
 
     def load_config(self) -> dict:
         if ALERT_CONFIG_PATH.exists():
@@ -235,6 +255,24 @@ class AlertScheduler:
             except Exception as e:
                 log.warning("Could not load alert config: %s", e)
         return _merge_config({})
+
+    def load_state(self) -> dict:
+        if ALERT_STATE_PATH.exists():
+            try:
+                raw = json.loads(ALERT_STATE_PATH.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    return raw
+            except Exception as e:
+                log.warning("Could not load alert state: %s", e)
+        return {}
+
+    def save_state(self) -> None:
+        state = {
+            "sent_silence_alerts": sorted(self._sent_silence_alerts)[-200:],
+            "sent_final_digests": sorted(self._sent_final_digests)[-200:],
+        }
+        ALERT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ALERT_STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def save_config(self, cfg: dict) -> dict:
         self.config = _merge_config(cfg)
@@ -260,6 +298,22 @@ class AlertScheduler:
             if dtime(sh, sm) <= ct <= dtime(eh, em):
                 return w
         return None
+
+    def _window_datetimes(self, window: dict, now: datetime) -> tuple[datetime, datetime]:
+        sh, sm = map(int, window["start"].split(":"))
+        eh, em = map(int, window["end"].split(":"))
+        start_dt = now.replace(hour=sh, minute=sm, second=0, microsecond=0)
+        end_dt = now.replace(hour=eh, minute=em, second=0, microsecond=0)
+        return start_dt, end_dt
+
+    def _window_key(self, window: dict, now: datetime) -> str:
+        return f"{now.date().isoformat()}:{window.get('id')}"
+
+    def _tweet_key(self, tweet: dict) -> str:
+        url = str(tweet.get("url") or "").strip()
+        if url:
+            return url
+        return f"{tweet.get('author_handle', '')}:{tweet.get('text', '')}"[:280]
 
     def preview_due_window(self, now: Optional[datetime] = None) -> Optional[dict]:
         now = now or datetime.now(self.tz)
@@ -301,6 +355,7 @@ class AlertScheduler:
             if url and url not in self._tweet_first_seen:
                 self._tweet_first_seen[url] = now
 
+        self._record_window_tweets(col_id, col_label, tweets, now)
         self._send_spikes(col_label, tweets, recipients, now)
 
     def dispatch_scheduled(self) -> bool:
@@ -310,6 +365,8 @@ class AlertScheduler:
         if not recipients:
             return False
         now = datetime.now(self.tz)
+        sent = False
+
         due_preview = self.preview_due_window(now)
         if due_preview:
             self.send_digest(
@@ -317,14 +374,97 @@ class AlertScheduler:
                 subject=f"[ALERTA X] Preview - {due_preview.get('label', 'programa')} - {now.strftime('%H:%M')}",
             )
 
-        if self.is_within_window(now) and self._should_send_periodic():
+        current = self.current_window(now)
+        if current:
+            sent = self._send_silence_alert_if_due(current, now) or sent
+
+        if current and self._should_send_periodic():
             if self.send_digest(
                 title=f"Top repercussao - {now.strftime('%H:%M')}",
                 subject=f"[ALERTA X] Top repercussao - {now.strftime('%H:%M')}",
             ):
                 self._last_sent = now
-                return True
-        return False
+                sent = True
+
+        sent = self._send_final_digests_if_due(now) or sent
+        return sent
+
+    def _record_window_tweets(self, col_id: int, col_label: str, tweets: list[dict], now: datetime) -> None:
+        window = self.current_window(now)
+        if not window:
+            return
+        key = self._window_key(window, now)
+        start_dt, _ = self._window_datetimes(window, now)
+        self._window_last_relevant_at.setdefault(key, start_dt)
+        self._window_seen_tweets.setdefault(key, set())
+        columns = self._window_tweets.setdefault(key, {})
+        col_bucket = columns.setdefault(col_id, {"label": col_label, "tweets": {}})
+        col_bucket["label"] = col_label
+
+        threshold = int(self.config.get("engagement_threshold", 200))
+        for t in tweets:
+            if engagement_score(t) < threshold:
+                continue
+            tweet_key = self._tweet_key(t)
+            if not tweet_key:
+                continue
+            if tweet_key not in self._window_seen_tweets[key]:
+                self._window_last_relevant_at[key] = now
+            self._window_seen_tweets[key].add(tweet_key)
+            col_bucket["tweets"][tweet_key] = t
+
+    def _send_silence_alert_if_due(self, window: dict, now: datetime) -> bool:
+        if not self.config.get("silence_alert_enabled", False):
+            return False
+        key = self._window_key(window, now)
+        if key in self._sent_silence_alerts:
+            return False
+        start_dt, _ = self._window_datetimes(window, now)
+        last_relevant = self._window_last_relevant_at.get(key, start_dt)
+        silence_minutes = int(self.config.get("silence_minutes", 30))
+        if (now - last_relevant).total_seconds() / 60 < silence_minutes:
+            return False
+        title = f"Silencio editorial - {window.get('label', 'programa')}"
+        intro = (
+            f"Nenhum tweet novo acima do threshold de engajamento "
+            f"({self.config.get('engagement_threshold')}) foi visto nos ultimos "
+            f"{silence_minutes} minutos da janela ativa."
+        )
+        html_body = _build_email_html(title, [], self.config.get("deck_url", ""), intro=intro)
+        self._sent_silence_alerts.add(key)
+        self.save_state()
+        asyncio.get_event_loop().run_in_executor(
+            None,
+            send_alert_email,
+            f"[ALERTA X] Silencio - {window.get('label', 'programa')} - {now.strftime('%H:%M')}",
+            html_body,
+            self.config.get("recipients") or [],
+        )
+        return True
+
+    def _send_final_digests_if_due(self, now: datetime) -> bool:
+        if not self.config.get("final_digest_enabled", False):
+            return False
+        sent = False
+        for window in self.config.get("windows", []):
+            if not window.get("enabled", True) or now.weekday() not in window.get("days", []):
+                continue
+            _, end_dt = self._window_datetimes(window, now)
+            if now <= end_dt:
+                continue
+            key = self._window_key(window, now)
+            if key in self._sent_final_digests:
+                continue
+            if key not in self._window_last_relevant_at:
+                continue
+            sections = self.build_window_sections(key)
+            title = f"Digest final - {window.get('label', 'programa')}"
+            subject = f"[ALERTA X] Digest final - {window.get('label', 'programa')} - {end_dt.strftime('%H:%M')}"
+            if self.send_digest(title=title, subject=subject, sections=sections, allow_empty=True):
+                self._sent_final_digests.add(key)
+                self.save_state()
+                sent = True
+        return sent
 
     def _send_spikes(self, col_label: str, tweets: list[dict], recipients: list[str], now: datetime) -> None:
         spike_replies = int(self.config.get("spike_replies", 500))
@@ -365,10 +505,26 @@ class AlertScheduler:
                 sections.append({"header": item["label"], "tweets": top})
         return sections
 
-    def send_digest(self, title: str, subject: str) -> bool:
+    def build_window_sections(self, window_key: str) -> list[dict]:
+        sections = []
+        for col_id in sorted(self._window_tweets.get(window_key, {})):
+            item = self._window_tweets[window_key][col_id]
+            tweets = list((item.get("tweets") or {}).values())
+            top = sorted(tweets, key=engagement_score, reverse=True)[:5]
+            if top:
+                sections.append({"header": item["label"], "tweets": top})
+        return sections
+
+    def send_digest(
+        self,
+        title: str,
+        subject: str,
+        sections: Optional[list[dict]] = None,
+        allow_empty: bool = False,
+    ) -> bool:
         recipients = self.config.get("recipients") or []
-        sections = self.build_sections()
-        if not sections:
+        sections = self.build_sections() if sections is None else sections
+        if not sections and not allow_empty:
             return False
         html_body = _build_email_html(title, sections, self.config.get("deck_url", ""))
         asyncio.get_event_loop().run_in_executor(None, send_alert_email, subject, html_body, recipients)

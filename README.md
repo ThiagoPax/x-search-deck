@@ -66,6 +66,7 @@ Opcionais de operação:
 | `PAGE_WAIT` | `7` | Tempo de espera após abrir a busca |
 | `DATA_DIR` | `.data` | Diretório de persistência local |
 | `ALERT_CONFIG_PATH` | `.data/alert_config.json` | Arquivo de configuração dos alertas |
+| `ALERT_STATE_PATH` | `.data/alert_state.json` | Estado leve de alertas já enviados |
 | `DECK_URL` | vazio | URL pública usada no botão "Abrir Deck" |
 
 SMTP para alertas por e-mail:
@@ -79,6 +80,7 @@ SMTP para alertas por e-mail:
 | `ALERT_EMAILS` | Lista inicial de destinatários separados por vírgula |
 
 As credenciais SMTP ficam somente no ambiente. Destinatários, janelas, frequência e thresholds são editáveis na interface e persistidos em `ALERT_CONFIG_PATH`.
+O estado operacional de envios únicos por janela, como alerta de silêncio e digest final, é salvo em `ALERT_STATE_PATH`.
 
 ## Uso
 
@@ -100,6 +102,8 @@ Abra `Alertas` no topo da interface para editar:
 - threshold de engajamento;
 - regra de spike;
 - antecedência do preview antes do programa;
+- alerta de silêncio;
+- digest final ao fim da janela;
 - URL pública do deck.
 
 Configuração padrão:
@@ -112,6 +116,24 @@ Configuração padrão:
 Durante uma janela ativa, o sistema envia um digest a cada N minutos com até 5 tweets de maior engajamento por coluna ativa. O engajamento é calculado como replies + retweets + likes e precisa superar o threshold configurado.
 
 O preview automático é enviado antes do começo da janela, conforme a antecedência configurada. O botão `Enviar preview` permite testar manualmente com os tweets já coletados.
+
+### Alerta de silêncio
+
+Quando ativado, o alerta de silêncio monitora cada janela ativa e envia no máximo um e-mail por janela se nenhum tweet novo acima do threshold configurado aparecer pelo intervalo definido em minutos.
+
+O silêncio é contado a partir do início da janela ou do último tweet relevante novo visto naquela janela. Tweets repetidos em refreshes posteriores não reiniciam o contador. O alerta usa os mesmos destinatários, SMTP, threshold e URL do deck da configuração principal.
+
+### Digest final
+
+Quando ativado, o digest final é enviado automaticamente após o fim de uma janela observada pelo backend. Ele usa os principais tweets relevantes vistos durante aquela janela, com até 5 tweets por coluna, ordenados por engajamento.
+
+Para evitar reenvio, cada digest final é marcado em `ALERT_STATE_PATH` com a data e o ID da janela. Se não houver tweets acima do threshold durante a janela, o digest final ainda pode ser enviado com a indicação de ausência de tweets acima do threshold.
+
+Limitações conhecidas:
+
+- as janelas atuais usam horários no mesmo dia; janelas que atravessam meia-noite não são tratadas como um único bloco;
+- alertas agendados dependem do loop de refresh estar ativo com ao menos uma coluna inscrita;
+- após reinício do servidor, o sistema preserva alertas finais e de silêncio já enviados, mas não reconstrói tweets vistos em uma janela antes do reinício.
 
 ## Deploy no Render
 
@@ -135,6 +157,7 @@ Implementado nesta rodada:
 
 - alertas por e-mail com configuração editável e persistente;
 - janelas, destinatários, frequência, threshold, spike e preview configuráveis;
+- alerta de silêncio e digest final configuráveis;
 - filtros de data por coluna;
 - opção por coluna para excluir retweets;
 - persistência leve de layout/estado no navegador;
@@ -149,5 +172,4 @@ Pendências maiores do planejamento:
 - templates e histórico de queries;
 - mídia inline, cards de link e thumbnails de vídeo;
 - destaque de keywords;
-- alerta de silêncio e digest diário final;
 - resumo/IA editorial, clip para pauta e integrações externas.
