@@ -37,6 +37,7 @@ RESEND_API_URL = "https://api.resend.com/emails"
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "").strip()
 RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "").strip()
 RESEND_TIMEOUT = max(1, _env_int("RESEND_TIMEOUT", 20))
+RESEND_USER_AGENT = os.environ.get("RESEND_USER_AGENT", "x-search-deck/1.0").strip() or "x-search-deck/1.0"
 ALERT_EMAILS_ENV = [e.strip() for e in os.environ.get("ALERT_EMAILS", "").split(",") if e.strip()]
 DATA_DIR = Path(os.environ.get("DATA_DIR", ".data"))
 ALERT_CONFIG_PATH = Path(os.environ.get("ALERT_CONFIG_PATH", DATA_DIR / "alert_config.json"))
@@ -253,6 +254,8 @@ def _resend_http_error_message(status: int, raw_body: str) -> str:
             return f"Falha de autenticacao na Resend: {detail}."
         return "Falha de autenticacao na Resend. Verifique RESEND_API_KEY."
     if status == 403:
+        if "1010" in detail:
+            return "Resend retornou 403 Forbidden: error code 1010. A requisicao precisa enviar User-Agent."
         if detail:
             return f"Resend retornou 403 Forbidden: {detail}."
         if any(term in detail_lower for term in ("domain", "sender", "from", "remetente")):
@@ -321,6 +324,7 @@ def send_alert_email_result(subject: str, body_html: str, recipients: list[str] 
             headers={
                 "Authorization": f"Bearer {RESEND_API_KEY}",
                 "Content-Type": "application/json",
+                "User-Agent": RESEND_USER_AGENT,
             },
             method="POST",
         )

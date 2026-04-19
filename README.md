@@ -79,6 +79,7 @@ Resend para alertas por e-mail:
 | `RESEND_API_KEY` | API key da Resend usada no envio HTTPS |
 | `RESEND_FROM_EMAIL` | Remetente validado na Resend |
 | `RESEND_TIMEOUT` | Timeout em segundos para a chamada HTTPS, padrão `20` |
+| `RESEND_USER_AGENT` | User-Agent enviado para a API da Resend, padrão `x-search-deck/1.0` |
 | `ALERT_EMAILS` | Lista inicial de destinatários separados por vírgula |
 
 O projeto nao usa mais SMTP para alertas. As credenciais da Resend ficam somente no ambiente. Destinatários, janelas, frequência e thresholds são editáveis na interface e persistidos em `ALERT_CONFIG_PATH`.
@@ -89,6 +90,7 @@ Erros comuns no teste de e-mail:
 - `Configuracao Resend incompleta`: falta `RESEND_API_KEY`, `RESEND_FROM_EMAIL` ou destinatário.
 - `Falha de autenticacao/autorizacao na Resend`: API key inválida, sem permissão ou ausente no ambiente.
 - `Resend recusou o dominio ou remetente`: `RESEND_FROM_EMAIL` não está validado/liberado na Resend.
+- `Resend retornou 403 Forbidden: error code 1010`: a API da Resend bloqueou a chamada sem `User-Agent`; o app envia `RESEND_USER_AGENT`.
 - `Timeout ao chamar a API da Resend`: a chamada HTTPS não respondeu dentro do prazo.
 - `Resposta inesperada da API da Resend`: a API respondeu sem o identificador esperado do envio.
 
