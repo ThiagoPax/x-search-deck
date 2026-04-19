@@ -732,11 +732,11 @@ async function summarizeColumn(col) {
       headers:{ 'Content-Type':'application/json' },
       body: JSON.stringify({
         column_name: document.getElementById(`colname${col}`)?.value || `Coluna ${col + 1}`,
-        tweets: tweets.slice(0, 80),
+        tweets: tweets.slice(0, 20),
       }),
     });
     const data = await r.json();
-    box.textContent = r.ok ? data.summary : (data.error || 'Erro ao gerar resumo.');
+    box.textContent = r.ok ? (data.summary || 'Resumo IA indisponível para esta coluna.') : (data.error || 'Erro ao gerar resumo IA.');
   } catch {
     box.textContent = 'Erro de rede ao gerar resumo.';
   }
