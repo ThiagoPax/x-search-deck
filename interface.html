@@ -45,6 +45,10 @@ button.tb-primary:hover { opacity:.88; }
 select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-radius:6px; color:var(--muted); padding:3px 7px; font-size:10px; outline:none; cursor:pointer; flex-shrink:0; }
 .col-meta { flex:1; font-size:10px; color:#3a3f44; white-space:nowrap; overflow:hidden; }
 .col-meta span { color:var(--muted); }
+.col-filters { display:grid; grid-template-columns:1fr 1fr auto; gap:5px; align-items:center; }
+.col-filters input[type="date"] { min-width:0; background:var(--bg); border:.5px solid var(--border); border-radius:6px; color:var(--muted); padding:3px 5px; font-size:10px; outline:none; color-scheme:dark; }
+.rt-toggle { display:flex; align-items:center; gap:4px; color:var(--muted); font-size:10px; white-space:nowrap; }
+.rt-toggle input { accent-color:var(--blue); }
 .sdot { width:5px; height:5px; border-radius:50%; background:#2a2a2a; flex-shrink:0; transition:background .3s; }
 .sdot.loading { background:var(--blue); animation:blink .8s infinite; }
 .sdot.ok      { background:var(--green); }
@@ -92,6 +96,30 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 .ov-box p  { font-size:13px; color:var(--muted); line-height:1.7; margin-bottom:14px; }
 .ov-box pre { background:var(--bg); border:.5px solid var(--border); border-radius:8px; padding:10px 14px; text-align:left; font-size:12px; color:var(--blue); line-height:1.8; margin-bottom:16px; overflow-x:auto; }
 .ov-box button { background:var(--blue); border:none; border-radius:20px; color:#fff; padding:9px 24px; font-size:13px; font-weight:700; cursor:pointer; }
+
+/* Alert config modal */
+#alert-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.82); z-index:1000; align-items:center; justify-content:center; padding:18px; }
+#alert-modal.show { display:flex; }
+.modal-box { width:min(760px, 100%); max-height:92vh; overflow:auto; background:var(--s1); border:.5px solid var(--border); border-radius:12px; padding:18px; box-shadow:0 18px 50px rgba(0,0,0,.45); }
+.modal-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+.modal-head h2 { font-size:16px; }
+.modal-close { background:none; border:.5px solid var(--border); color:var(--muted); border-radius:50%; width:28px; height:28px; cursor:pointer; }
+.alert-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.field { display:flex; flex-direction:column; gap:5px; }
+.field.full { grid-column:1 / -1; }
+.field label { color:var(--muted); font-size:11px; font-weight:700; }
+.field input, .field textarea { background:var(--bg); border:.5px solid var(--border); border-radius:7px; color:var(--text); padding:8px 9px; font-size:12px; outline:none; }
+.field textarea { min-height:64px; resize:vertical; }
+.windows { grid-column:1 / -1; display:flex; flex-direction:column; gap:8px; }
+.window-row { display:grid; grid-template-columns:1.2fr 1.4fr .7fr .7fr auto; gap:7px; align-items:center; }
+.window-row input { background:var(--bg); border:.5px solid var(--border); border-radius:7px; color:var(--text); padding:7px 8px; font-size:12px; min-width:0; color-scheme:dark; }
+.window-row label { display:flex; align-items:center; justify-content:center; gap:4px; color:var(--muted); font-size:11px; }
+.modal-actions { display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:14px; }
+.modal-status { margin-right:auto; color:var(--muted); font-size:11px; }
+@media (max-width: 720px) {
+  .alert-grid, .window-row { grid-template-columns:1fr; }
+  .field.full, .windows { grid-column:auto; }
+}
 </style>
 </head>
 <body>
@@ -109,6 +137,7 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
       <option value="6" selected>6 colunas</option>
     </select>
     <button class="tb-btn" onclick="subscribeAll()">↺ Atualizar</button>
+    <button class="tb-btn" onclick="openAlertModal()">Alertas</button>
     <button class="tb-primary" onclick="subscribeAll()">▶ Iniciar busca</button>
   </div>
 </div>
@@ -122,6 +151,58 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
     <pre id="ws-url-display">Aguardando...</pre>
     <p style="font-size:12px">Se o erro persistir, verifique se o serviço está ativo<br>no painel do Render e se X_COOKIES_JSON está configurado.</p>
     <button onclick="retryConnect()">↺ Tentar reconectar</button>
+  </div>
+</div>
+
+<div id="alert-modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2>Alertas por e-mail</h2>
+      <button class="modal-close" onclick="closeAlertModal()" title="Fechar">×</button>
+    </div>
+    <div class="alert-grid">
+      <div class="field full">
+        <label for="alert-enabled">Ativo</label>
+        <label class="rt-toggle" style="justify-content:flex-start"><input type="checkbox" id="alert-enabled"> Enviar alertas automáticos</label>
+      </div>
+      <div class="field full">
+        <label for="alert-recipients">Destinatários</label>
+        <textarea id="alert-recipients" placeholder="email@dominio.com, outro@dominio.com"></textarea>
+      </div>
+      <div class="field">
+        <label for="alert-frequency">Frequência dentro da janela (min)</label>
+        <input id="alert-frequency" type="number" min="1" max="240" value="15">
+      </div>
+      <div class="field">
+        <label for="alert-threshold">Threshold de engajamento</label>
+        <input id="alert-threshold" type="number" min="1" value="200">
+      </div>
+      <div class="field">
+        <label for="alert-spike-replies">Spike: replies</label>
+        <input id="alert-spike-replies" type="number" min="1" value="500">
+      </div>
+      <div class="field">
+        <label for="alert-spike-minutes">Spike: janela (min)</label>
+        <input id="alert-spike-minutes" type="number" min="1" value="10">
+      </div>
+      <div class="field">
+        <label for="alert-preview">Preview antes do programa (min)</label>
+        <input id="alert-preview" type="number" min="0" max="240" value="30">
+      </div>
+      <div class="field">
+        <label for="alert-deck-url">URL do deck</label>
+        <input id="alert-deck-url" type="url" placeholder="https://...">
+      </div>
+      <div class="windows">
+        <div class="field"><label>Janelas de envio</label></div>
+        <div id="alert-windows"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <span class="modal-status" id="alert-status"></span>
+      <button class="tb-btn" onclick="sendAlertPreview()">Enviar preview</button>
+      <button class="tb-primary" onclick="saveAlertConfig()">Salvar alertas</button>
+    </div>
   </div>
 </div>
 
@@ -163,8 +244,9 @@ lang:pt`},
 ];
 
 // ── Estado ────────────────────────────────────────────────
-let numCols = 6, ws = null, reconnTimer = null, reconnAttempts = 0;
+let numCols = +(localStorage.getItem('xdeck_num_cols') || 6), ws = null, reconnTimer = null, reconnAttempts = 0;
 let seenUrls = {}, colResults = {};
+let alertConfig = null;
 
 // ── Grid ──────────────────────────────────────────────────
 function buildGrid() {
@@ -195,6 +277,11 @@ function buildGrid() {
           <div class="sdot" id="sdot${i}"></div>
           <button class="rbtn" onclick="refreshOne(${i})" title="Refresh">↺</button>
         </div>
+        <div class="col-filters">
+          <input type="date" id="from${i}" value="${esc(loadColDateFrom(i) || '')}" title="Desde">
+          <input type="date" id="to${i}" value="${esc(loadColDateTo(i) || '')}" title="Até">
+          <label class="rt-toggle" title="Excluir retweets"><input type="checkbox" id="nort${i}" ${loadColExcludeRt(i) ? 'checked' : ''}> sem RT</label>
+        </div>
       </div>
       <div class="col-body" id="body${i}">
         <div class="col-empty">${xSvg()}<div>Clique em <strong>▶ Iniciar busca</strong></div></div>
@@ -207,12 +294,20 @@ function buildGrid() {
     qEl.addEventListener('input', () => saveColQuery(i, qEl.value));
     document.getElementById(`sort${i}`).addEventListener('change', function() { saveColSort(i, this.value); });
     document.getElementById(`colname${i}`).addEventListener('input', function() { saveColName(i, this.value); });
+    document.getElementById(`from${i}`).addEventListener('change', function() { saveColDateFrom(i, this.value); });
+    document.getElementById(`to${i}`).addEventListener('change', function() { saveColDateTo(i, this.value); });
+    document.getElementById(`nort${i}`).addEventListener('change', function() { saveColExcludeRt(i, this.checked); });
     // Clear badge when column body is clicked
     document.getElementById(`body${i}`).addEventListener('click', () => clearBadge(i), { capture: true });
   }
 }
 
-function setColumns(n) { numCols = n; buildGrid(); subscribeAll(); }
+function setColumns(n) {
+  numCols = n;
+  localStorage.setItem('xdeck_num_cols', String(n));
+  buildGrid();
+  subscribeAll();
+}
 
 // ── WebSocket ─────────────────────────────────────────────
 function connect() {
@@ -265,6 +360,9 @@ function subscribeAll() {
       query: document.getElementById(`q${i}`)?.value || '',
       sort:  document.getElementById(`sort${i}`)?.value || 'live',
       name:  document.getElementById(`colname${i}`)?.value || `Coluna ${i+1}`,
+      date_from: document.getElementById(`from${i}`)?.value || '',
+      date_to: document.getElementById(`to${i}`)?.value || '',
+      exclude_retweets: !!document.getElementById(`nort${i}`)?.checked,
     });
   }
   ws.send(JSON.stringify({ type:'subscribe', columns:cols }));
@@ -367,9 +465,112 @@ function lsKey(col, field) { return `xdeck_col${col}_${field}`; }
 function saveColQuery(col, v) { localStorage.setItem(lsKey(col,'query'), v); }
 function saveColSort(col, v)  { localStorage.setItem(lsKey(col,'sort'),  v); }
 function saveColName(col, v)  { localStorage.setItem(lsKey(col,'name'),  v); }
+function saveColDateFrom(col, v) { localStorage.setItem(lsKey(col,'date_from'), v); }
+function saveColDateTo(col, v)   { localStorage.setItem(lsKey(col,'date_to'), v); }
+function saveColExcludeRt(col, v){ localStorage.setItem(lsKey(col,'exclude_rt'), v ? '1' : '0'); }
 function loadColQuery(col)    { return localStorage.getItem(lsKey(col,'query')); }
 function loadColSort(col)     { return localStorage.getItem(lsKey(col,'sort')); }
 function loadColName(col)     { return localStorage.getItem(lsKey(col,'name')); }
+function loadColDateFrom(col) { return localStorage.getItem(lsKey(col,'date_from')); }
+function loadColDateTo(col)   { return localStorage.getItem(lsKey(col,'date_to')); }
+function loadColExcludeRt(col){ return localStorage.getItem(lsKey(col,'exclude_rt')) === '1'; }
+
+// ── Alert config ─────────────────────────────────────────
+async function openAlertModal() {
+  document.getElementById('alert-modal').classList.add('show');
+  await loadAlertConfig();
+}
+function closeAlertModal() {
+  document.getElementById('alert-modal').classList.remove('show');
+}
+async function loadAlertConfig() {
+  setAlertStatus('carregando...');
+  try {
+    const r = await fetch('/api/alerts/config');
+    alertConfig = await r.json();
+    fillAlertForm(alertConfig);
+    setAlertStatus('');
+  } catch {
+    setAlertStatus('erro ao carregar configuração');
+  }
+}
+function fillAlertForm(cfg) {
+  document.getElementById('alert-enabled').checked = !!cfg.enabled;
+  document.getElementById('alert-recipients').value = (cfg.recipients || []).join(', ');
+  document.getElementById('alert-frequency').value = cfg.frequency_minutes || 15;
+  document.getElementById('alert-threshold').value = cfg.engagement_threshold || 200;
+  document.getElementById('alert-spike-replies').value = cfg.spike_replies || 500;
+  document.getElementById('alert-spike-minutes').value = cfg.spike_minutes || 10;
+  document.getElementById('alert-preview').value = cfg.preview_minutes ?? 30;
+  document.getElementById('alert-deck-url').value = cfg.deck_url || location.origin;
+  const holder = document.getElementById('alert-windows');
+  holder.innerHTML = '';
+  (cfg.windows || []).forEach((w, idx) => {
+    const row = document.createElement('div');
+    row.className = 'window-row';
+    row.dataset.idx = idx;
+    row.innerHTML = `
+      <input data-k="label" value="${esc(w.label || '')}" placeholder="Programa">
+      <input data-k="days" value="${esc((w.days || []).join(','))}" placeholder="Dias 0-6">
+      <input data-k="start" type="time" value="${esc(w.start || '17:30')}">
+      <input data-k="end" type="time" value="${esc(w.end || '19:00')}">
+      <label><input data-k="enabled" type="checkbox" ${w.enabled !== false ? 'checked' : ''}> ativa</label>`;
+    holder.appendChild(row);
+  });
+}
+function readAlertForm() {
+  const windows = Array.from(document.querySelectorAll('.window-row')).map((row, idx) => {
+    const get = k => row.querySelector(`[data-k="${k}"]`);
+    return {
+      id: alertConfig?.windows?.[idx]?.id || `window-${idx + 1}`,
+      label: get('label').value.trim() || `Janela ${idx + 1}`,
+      days: get('days').value.split(',').map(x => +x.trim()).filter(n => Number.isInteger(n) && n >= 0 && n <= 6),
+      start: get('start').value || '17:30',
+      end: get('end').value || '19:00',
+      enabled: get('enabled').checked,
+    };
+  });
+  return {
+    enabled: document.getElementById('alert-enabled').checked,
+    recipients: document.getElementById('alert-recipients').value.split(/[,\n;]+/).map(x => x.trim()).filter(Boolean),
+    frequency_minutes: +document.getElementById('alert-frequency').value || 15,
+    engagement_threshold: +document.getElementById('alert-threshold').value || 200,
+    spike_replies: +document.getElementById('alert-spike-replies').value || 500,
+    spike_minutes: +document.getElementById('alert-spike-minutes').value || 10,
+    preview_minutes: +document.getElementById('alert-preview').value || 0,
+    deck_url: document.getElementById('alert-deck-url').value.trim(),
+    windows,
+  };
+}
+async function saveAlertConfig() {
+  setAlertStatus('salvando...');
+  try {
+    const r = await fetch('/api/alerts/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(readAlertForm()),
+    });
+    alertConfig = await r.json();
+    fillAlertForm(alertConfig);
+    setAlertStatus(r.ok ? 'configuração salva' : 'erro ao salvar');
+  } catch {
+    setAlertStatus('erro ao salvar');
+  }
+}
+async function sendAlertPreview() {
+  setAlertStatus('enviando preview...');
+  await saveAlertConfig();
+  try {
+    const r = await fetch('/api/alerts/preview', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:'{}' });
+    const data = await r.json();
+    setAlertStatus(data.message || (r.ok ? 'preview enviado' : 'preview não enviado'));
+  } catch {
+    setAlertStatus('erro ao enviar preview');
+  }
+}
+function setAlertStatus(msg) {
+  document.getElementById('alert-status').textContent = msg || '';
+}
 
 // ── Badge helpers ──────────────────────────────────────────
 function showBadge(col, count) {
@@ -384,6 +585,8 @@ function clearBadge(col) {
   if (b) { b.textContent = ''; b.classList.remove('show'); }
 }
 
+const colsSel = document.getElementById('cols-sel');
+if (colsSel) colsSel.value = String(numCols);
 buildGrid();
 connect();
 </script>

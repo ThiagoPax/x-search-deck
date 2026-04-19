@@ -53,6 +53,19 @@ def build_url(query, sort="live"):
     return f"https://x.com/search?q={urllib.parse.quote(q)}&f={sort}&src=typed_query"
 
 
+def apply_column_filters(cfg: dict) -> str:
+    q = re.sub(r"\s+", " ", (cfg.get("query") or "").replace("\n", " ")).strip()
+    date_from = (cfg.get("date_from") or "").strip()
+    date_to = (cfg.get("date_to") or "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_from) and "since:" not in q:
+        q = f"{q} since:{date_from}".strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_to) and "until:" not in q:
+        q = f"{q} until:{date_to}".strip()
+    if cfg.get("exclude_retweets") and "-filter:retweets" not in q:
+        q = f"{q} -filter:retweets".strip()
+    return q
+
+
 # ── Extração ──────────────────────────────────────────────
 
 async def extract_tweets(page: Page) -> list[dict]:
@@ -248,6 +261,32 @@ class XDeckApp:
             content_type="text/html"
         )
 
+    async def alert_config_handler(self, request):
+        scheduler = get_scheduler()
+        if request.method == "GET":
+            return web.json_response(scheduler.get_config())
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "JSON invalido"}, status=400)
+        cfg = scheduler.save_config(data)
+        return web.json_response(cfg)
+
+    async def alert_preview_handler(self, request):
+        scheduler = get_scheduler()
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        title = data.get("title") or f"Preview X Search Deck - {datetime.now().strftime('%H:%M')}"
+        subject = data.get("subject") or f"[ALERTA X] Preview manual - {datetime.now().strftime('%H:%M')}"
+        sent = scheduler.send_digest(title=title, subject=subject)
+        status = 200 if sent else 400
+        return web.json_response({
+            "sent": sent,
+            "message": "Preview enviado" if sent else "Sem tweets acima do threshold ou SMTP/destinatarios ausentes"
+        }, status=status)
+
     async def ws_handler(self, request):
         ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
@@ -291,7 +330,8 @@ class XDeckApp:
             return
         await self.broadcast({"type":"status","column":col_id,"status":"loading"})
         try:
-            url = build_url(cfg["query"], cfg.get("sort","live"))
+            filtered_query = apply_column_filters(cfg)
+            url = build_url(filtered_query, cfg.get("sort","live"))
             log.info(f"Col {col_id+1}: coletando...")
             tweets = await self.bm.fetch(url)
             self.results[col_id] = tweets
@@ -311,6 +351,7 @@ class XDeckApp:
         for col_id in sorted(self.subscriptions):
             await self.refresh_column(col_id)
             await asyncio.sleep(STAGGER_SECONDS)
+        get_scheduler().dispatch_scheduled()
 
     async def _refresh_loop(self):
         while True:
@@ -335,6 +376,9 @@ def create_app():
     app  = web.Application()
     app.router.add_get("/",   deck.index_handler)
     app.router.add_get("/ws", deck.ws_handler)
+    app.router.add_get("/api/alerts/config", deck.alert_config_handler)
+    app.router.add_post("/api/alerts/config", deck.alert_config_handler)
+    app.router.add_post("/api/alerts/preview", deck.alert_preview_handler)
     app.on_startup.append(deck.startup)
     app.on_shutdown.append(deck.shutdown)
     return app
