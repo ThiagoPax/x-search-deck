@@ -72,27 +72,25 @@ Opcionais de operação:
 | `ALERT_STATE_PATH` | `.data/alert_state.json` | Estado leve de alertas já enviados |
 | `DECK_URL` | vazio | URL pública usada no botão "Abrir Deck" |
 
-SMTP para alertas por e-mail:
+Resend para alertas por e-mail:
 
 | Variável | Descrição |
 |---|---|
-| `SMTP_HOST` | Host SMTP |
-| `SMTP_PORT` | Porta SMTP, normalmente `587` ou `465` |
-| `SMTP_USER` | Usuário/remetente |
-| `SMTP_PASS` | Senha ou app password |
-| `SMTP_TIMEOUT` | Timeout em segundos para conexão/envio, padrão `20` |
+| `RESEND_API_KEY` | API key da Resend usada no envio HTTPS |
+| `RESEND_FROM_EMAIL` | Remetente validado na Resend |
+| `RESEND_TIMEOUT` | Timeout em segundos para a chamada HTTPS, padrão `20` |
 | `ALERT_EMAILS` | Lista inicial de destinatários separados por vírgula |
 
-As credenciais SMTP ficam somente no ambiente. Destinatários, janelas, frequência e thresholds são editáveis na interface e persistidos em `ALERT_CONFIG_PATH`.
+O projeto nao usa mais SMTP para alertas. As credenciais da Resend ficam somente no ambiente. Destinatários, janelas, frequência e thresholds são editáveis na interface e persistidos em `ALERT_CONFIG_PATH`.
 O estado operacional de envios únicos por janela, como alerta de silêncio e digest final, é salvo em `ALERT_STATE_PATH`.
 
-Erros comuns no teste SMTP:
+Erros comuns no teste de e-mail:
 
-- `Configuracao SMTP incompleta`: falta `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` ou destinatário.
-- `Host SMTP nao resolvido por DNS`: `SMTP_HOST` inválido ou indisponível no ambiente.
-- `Rede indisponivel`: o ambiente de deploy não consegue abrir conexão de saída para o SMTP.
-- `Falha de autenticacao SMTP`: usuário/senha ou app password inválidos.
-- `Falha de TLS/SSL`: porta e modo de segurança incompatíveis. Use `465` para SSL direto ou `587` para STARTTLS.
+- `Configuracao Resend incompleta`: falta `RESEND_API_KEY`, `RESEND_FROM_EMAIL` ou destinatário.
+- `Falha de autenticacao/autorizacao na Resend`: API key inválida, sem permissão ou ausente no ambiente.
+- `Resend recusou o dominio ou remetente`: `RESEND_FROM_EMAIL` não está validado/liberado na Resend.
+- `Timeout ao chamar a API da Resend`: a chamada HTTPS não respondeu dentro do prazo.
+- `Resposta inesperada da API da Resend`: a API respondeu sem o identificador esperado do envio.
 
 OpenAI para recursos editoriais sob demanda:
 
@@ -237,13 +235,15 @@ Durante uma janela ativa, o sistema envia um digest a cada N minutos com até 5 
 
 O preview automático é enviado antes do começo da janela, conforme a antecedência configurada. O botão `Enviar preview` permite testar manualmente com os tweets já coletados.
 
-O botão `Enviar e-mail teste` no modal de alertas chama `/api/alerts/test-email` e tenta um envio real com os destinatários preenchidos no modal, mesmo antes de salvar. O resultado do último teste da sessão fica visível no modal e informa sucesso/falha, horário e destinatários usados. Esse teste valida apenas SMTP e destinatários; ele não altera preview, digest periódico, spike, silêncio editorial ou digest final.
+O botão `Enviar e-mail teste` no modal de alertas chama `/api/alerts/test-email` e tenta um envio real via Resend com os destinatários preenchidos no modal, mesmo antes de salvar. O resultado do último teste da sessão fica visível no modal e informa sucesso/falha, horário e destinatários usados. Esse teste valida apenas Resend e destinatários; ele não altera preview, digest periódico, spike, silêncio editorial ou digest final.
+
+Para testar o envio, configure `RESEND_API_KEY` e `RESEND_FROM_EMAIL`, abra o modal `Alertas`, preencha os destinatários e clique em `Enviar e-mail teste`. O mesmo fluxo pode ser exercitado via `POST /api/alerts/test-email`.
 
 ### Alerta de silêncio
 
 Quando ativado, o alerta de silêncio monitora cada janela ativa e envia no máximo um e-mail por janela se nenhum tweet novo acima do threshold configurado aparecer pelo intervalo definido em minutos.
 
-O silêncio é contado a partir do início da janela ou do último tweet relevante novo visto naquela janela. Tweets repetidos em refreshes posteriores não reiniciam o contador. O alerta usa os mesmos destinatários, SMTP, threshold e URL do deck da configuração principal.
+O silêncio é contado a partir do início da janela ou do último tweet relevante novo visto naquela janela. Tweets repetidos em refreshes posteriores não reiniciam o contador. O alerta usa os mesmos destinatários, Resend, threshold e URL do deck da configuração principal.
 
 ### Digest final
 
@@ -271,7 +271,7 @@ Start command:
 python server.py
 ```
 
-Configure pelo menos `X_COOKIES_JSON`. Para alertas, configure também `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` e, opcionalmente, `ALERT_EMAILS` e `DECK_URL`.
+Configure pelo menos `X_COOKIES_JSON`. Para alertas, configure também `RESEND_API_KEY`, `RESEND_FROM_EMAIL` e, opcionalmente, `ALERT_EMAILS` e `DECK_URL`.
 Para resumo IA, configure também `OPENAI_API_KEY` e, opcionalmente, `OPENAI_MODEL`. O modelo precisa ser compatível com a Responses API e estar liberado para a chave usada.
 
 ## Roadmap Técnico

@@ -1,7 +1,7 @@
 """
 Email alert module for X Search Deck.
 
-SMTP credentials stay in environment variables. Operational alert settings
+Resend credentials stay in environment variables. Operational alert settings
 (recipients, windows, frequency and thresholds) are editable through the app
 and persisted as JSON.
 """
@@ -14,12 +14,10 @@ import logging
 import os
 import re
 import socket
-import smtplib
-import ssl
+import urllib.error
+import urllib.request
 from copy import deepcopy
 from datetime import datetime, time as dtime, timedelta
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Optional
 
@@ -35,11 +33,10 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-SMTP_HOST = os.environ.get("SMTP_HOST", "")
-SMTP_PORT_RAW = os.environ.get("SMTP_PORT", "587")
-SMTP_USER = os.environ.get("SMTP_USER", "")
-SMTP_PASS = os.environ.get("SMTP_PASS", "")
-SMTP_TIMEOUT = max(1, _env_int("SMTP_TIMEOUT", 20))
+RESEND_API_URL = "https://api.resend.com/emails"
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "")
+RESEND_TIMEOUT = max(1, _env_int("RESEND_TIMEOUT", 20))
 ALERT_EMAILS_ENV = [e.strip() for e in os.environ.get("ALERT_EMAILS", "").split(",") if e.strip()]
 DATA_DIR = Path(os.environ.get("DATA_DIR", ".data"))
 ALERT_CONFIG_PATH = Path(os.environ.get("ALERT_CONFIG_PATH", DATA_DIR / "alert_config.json"))
@@ -188,78 +185,80 @@ def engagement_score(tweet: dict) -> int:
     )
 
 
-def _smtp_port() -> Optional[int]:
-    try:
-        port = int(SMTP_PORT_RAW)
-    except Exception:
-        return None
-    if not 1 <= port <= 65535:
-        return None
-    return port
-
-
 def _clean_recipients(recipients: list[str] | str | None) -> list[str]:
     if isinstance(recipients, str):
         recipients = re.split(r"[,\n;]+", recipients)
     return [str(e).strip() for e in (recipients or []) if str(e).strip()]
 
 
-def validate_smtp_config(recipients: list[str] | str | None) -> dict:
+def validate_resend_config(recipients: list[str] | str | None) -> dict:
     clean = _clean_recipients(recipients)
-    port = _smtp_port()
     missing = []
-    if not SMTP_HOST:
-        missing.append("SMTP_HOST")
-    if port is None:
-        missing.append("SMTP_PORT valido")
-    if not SMTP_USER:
-        missing.append("SMTP_USER")
-    if not SMTP_PASS:
-        missing.append("SMTP_PASS")
+    if not RESEND_API_KEY:
+        missing.append("RESEND_API_KEY")
+    if not RESEND_FROM_EMAIL:
+        missing.append("RESEND_FROM_EMAIL")
     if not clean:
         missing.append("destinatarios")
     if missing:
         return {
             "ok": False,
-            "message": "Configuracao SMTP incompleta: " + ", ".join(missing),
+            "message": "Configuracao Resend incompleta: " + ", ".join(missing),
             "recipients": clean,
-            "port": port,
         }
-    return {"ok": True, "message": "Configuracao SMTP valida", "recipients": clean, "port": port}
+    return {"ok": True, "message": "Configuracao Resend valida", "recipients": clean}
 
 
-def _smtp_error_message(exc: Exception) -> str:
-    if isinstance(exc, smtplib.SMTPAuthenticationError):
-        return "Falha de autenticacao SMTP. Verifique SMTP_USER e SMTP_PASS."
-    if isinstance(exc, smtplib.SMTPConnectError):
-        return "Falha ao conectar ao servidor SMTP. Verifique SMTP_HOST e SMTP_PORT."
-    if isinstance(exc, smtplib.SMTPServerDisconnected):
-        return "Servidor SMTP desconectou durante o envio. Verifique porta, TLS/SSL e credenciais."
-    if isinstance(exc, smtplib.SMTPRecipientsRefused):
-        return "Servidor SMTP recusou todos os destinatarios."
-    if isinstance(exc, smtplib.SMTPSenderRefused):
-        return "Servidor SMTP recusou o remetente configurado em SMTP_USER."
-    if isinstance(exc, smtplib.SMTPDataError):
-        return "Servidor SMTP recusou o conteudo da mensagem."
-    if isinstance(exc, smtplib.SMTPNotSupportedError):
-        return "Servidor SMTP nao suporta STARTTLS nessa porta. Verifique SMTP_PORT ou use SSL direto na porta 465."
-    if isinstance(exc, smtplib.SMTPException):
-        return f"Falha SMTP: {exc.__class__.__name__}."
-    if isinstance(exc, ssl.SSLError):
-        return "Falha de TLS/SSL. Verifique se a porta exige SSL direto ou STARTTLS."
-    if isinstance(exc, socket.gaierror):
-        return "Host SMTP nao resolvido por DNS. Verifique SMTP_HOST."
+def _resend_error_detail(raw_body: str) -> str:
+    try:
+        data = json.loads(raw_body)
+    except Exception:
+        data = {}
+    if isinstance(data, dict):
+        for key in ("message", "error"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:240]
+            if isinstance(value, dict):
+                nested = value.get("message")
+                if isinstance(nested, str) and nested.strip():
+                    return nested.strip()[:240]
+    return raw_body.strip()[:240]
+
+
+def _resend_http_error_message(status: int, raw_body: str) -> str:
+    detail = _resend_error_detail(raw_body)
+    detail_lower = detail.lower()
+    if status in (401, 403):
+        if any(term in detail_lower for term in ("domain", "sender", "from", "remetente")):
+            return "Resend recusou o dominio ou remetente configurado em RESEND_FROM_EMAIL."
+        return "Falha de autenticacao/autorizacao na Resend. Verifique RESEND_API_KEY."
+    if status in (400, 422):
+        if any(term in detail_lower for term in ("domain", "sender", "from", "remetente")):
+            return "Resend recusou o dominio ou remetente configurado em RESEND_FROM_EMAIL."
+        return f"Resend recusou a requisicao de envio: {detail or 'dados invalidos'}."
+    if status == 429:
+        return "Resend limitou temporariamente o envio. Tente novamente em instantes."
+    if 500 <= status <= 599:
+        return "Falha temporaria na API da Resend."
+    return f"Falha HTTP ao enviar pela Resend: status {status}."
+
+
+def _resend_transport_error_message(exc: Exception) -> str:
     if isinstance(exc, TimeoutError) or isinstance(exc, socket.timeout):
-        return "Timeout ao conectar ou enviar pelo SMTP."
+        return "Timeout ao chamar a API da Resend."
+    if isinstance(exc, urllib.error.URLError):
+        reason = getattr(exc, "reason", None)
+        if isinstance(reason, TimeoutError) or isinstance(reason, socket.timeout):
+            return "Timeout ao chamar a API da Resend."
+        return f"Erro de rede ao chamar a API da Resend: {reason or exc.__class__.__name__}."
     if isinstance(exc, OSError):
-        if getattr(exc, "errno", None) == 101:
-            return "Rede indisponivel para o servidor SMTP ([Errno 101] Network is unreachable)."
-        return f"Erro de rede ao enviar SMTP: {exc.strerror or exc.__class__.__name__}."
-    return f"Erro inesperado ao enviar SMTP: {exc.__class__.__name__}."
+        return f"Erro de rede ao chamar a API da Resend: {exc.strerror or exc.__class__.__name__}."
+    return f"Erro inesperado ao enviar pela Resend: {exc.__class__.__name__}."
 
 
 def send_alert_email_result(subject: str, body_html: str, recipients: list[str] | str | None) -> dict:
-    validation = validate_smtp_config(recipients)
+    validation = validate_resend_config(recipients)
     timestamp = datetime.now(pytz.timezone("America/Sao_Paulo")).isoformat(timespec="seconds")
     clean_recipients = validation["recipients"]
     if not validation["ok"]:
@@ -271,37 +270,73 @@ def send_alert_email_result(subject: str, body_html: str, recipients: list[str] 
             "timestamp": timestamp,
         }
 
-    port = validation["port"]
-    server = None
     try:
-        msg = MIMEMultipart()
-        msg["From"] = SMTP_USER
-        msg["To"] = ", ".join(clean_recipients)
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body_html, "html", "utf-8"))
-        if port == 465:
-            server = smtplib.SMTP_SSL(SMTP_HOST, port, timeout=SMTP_TIMEOUT)
-        else:
-            server = smtplib.SMTP(SMTP_HOST, port, timeout=SMTP_TIMEOUT)
-            server.starttls()
-        server.login(SMTP_USER, SMTP_PASS)
-        server.sendmail(SMTP_USER, clean_recipients, msg.as_string())
-        log.info("Alert email sent: subject=%s recipients=%s host=%s port=%s", subject, len(clean_recipients), SMTP_HOST, port)
+        payload = {
+            "from": RESEND_FROM_EMAIL,
+            "to": clean_recipients,
+            "subject": subject,
+            "html": body_html,
+        }
+        request = urllib.request.Request(
+            RESEND_API_URL,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=RESEND_TIMEOUT) as response:
+            raw_body = response.read().decode("utf-8", errors="replace")
+            status = getattr(response, "status", 0)
+        if not 200 <= status <= 299:
+            message = _resend_http_error_message(status, raw_body)
+            log.error(
+                "Failed to send alert email via Resend: %s subject=%s recipients=%s status=%s",
+                message,
+                subject,
+                len(clean_recipients),
+                status,
+            )
+            return {
+                "ok": False,
+                "message": message,
+                "recipients": clean_recipients,
+                "timestamp": timestamp,
+            }
+        try:
+            response_data = json.loads(raw_body or "{}")
+        except Exception:
+            response_data = {}
+        if not isinstance(response_data, dict) or not response_data.get("id"):
+            log.error(
+                "Unexpected Resend response while sending alert email: subject=%s recipients=%s status=%s",
+                subject,
+                len(clean_recipients),
+                status,
+            )
+            return {
+                "ok": False,
+                "message": "Resposta inesperada da API da Resend.",
+                "recipients": clean_recipients,
+                "timestamp": timestamp,
+            }
+        log.info("Alert email sent via Resend: subject=%s recipients=%s provider_id=%s", subject, len(clean_recipients), response_data.get("id"))
         return {
             "ok": True,
             "message": "E-mail enviado com sucesso.",
             "recipients": clean_recipients,
             "timestamp": timestamp,
         }
-    except Exception as e:
-        message = _smtp_error_message(e)
+    except urllib.error.HTTPError as e:
+        raw_body = e.read().decode("utf-8", errors="replace")
+        message = _resend_http_error_message(e.code, raw_body)
         log.error(
-            "Failed to send alert email: %s subject=%s recipients=%s host=%s port=%s error_type=%s",
+            "Failed to send alert email via Resend: %s subject=%s recipients=%s status=%s error_type=%s",
             message,
             subject,
             len(clean_recipients),
-            SMTP_HOST or "(empty)",
-            port,
+            e.code,
             e.__class__.__name__,
         )
         return {
@@ -310,12 +345,21 @@ def send_alert_email_result(subject: str, body_html: str, recipients: list[str] 
             "recipients": clean_recipients,
             "timestamp": timestamp,
         }
-    finally:
-        if server is not None:
-            try:
-                server.quit()
-            except Exception:
-                pass
+    except Exception as e:
+        message = _resend_transport_error_message(e)
+        log.error(
+            "Failed to send alert email via Resend: %s subject=%s recipients=%s error_type=%s",
+            message,
+            subject,
+            len(clean_recipients),
+            e.__class__.__name__,
+        )
+        return {
+            "ok": False,
+            "message": message,
+            "recipients": clean_recipients,
+            "timestamp": timestamp,
+        }
 
 
 def send_alert_email(subject: str, body_html: str, recipients: list[str]) -> bool:

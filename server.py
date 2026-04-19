@@ -431,7 +431,7 @@ class XDeckApp:
         status = 200 if sent else 400
         return web.json_response({
             "sent": sent,
-            "message": "Preview enviado" if sent else "Sem tweets acima do threshold ou SMTP/destinatarios ausentes"
+            "message": "Preview enviado" if sent else "Sem tweets acima do threshold ou envio de e-mail indisponivel"
         }, status=status)
 
     async def alert_test_email_handler(self, request):
