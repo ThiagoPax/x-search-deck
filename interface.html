@@ -36,6 +36,8 @@ button.tb-primary:hover { opacity:.88; }
 
 /* Col head */
 .col-head { background:var(--s1); border-bottom:.5px solid var(--border); padding:7px 8px 6px; display:flex; flex-direction:column; gap:5px; flex-shrink:0; }
+.col-head.collapsed { gap:0; padding-bottom:7px; }
+.col-head.collapsed .collapsible { display:none; }
 .ch-top { display:flex; align-items:flex-start; gap:5px; }
 .col-n { font-size:10px; color:#444; font-weight:800; min-width:14px; padding-top:5px; }
 .col-head textarea { flex:1; min-height:48px; max-height:90px; resize:none; overflow:auto; background:var(--bg); border:.5px solid var(--border); border-radius:7px; color:var(--text); padding:5px 8px; font-size:11px; line-height:1.5; font-family:"SF Mono","Cascadia Code","Consolas",monospace; outline:none; transition:border-color .15s; }
@@ -57,8 +59,10 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 .rt-toggle { display:flex; align-items:center; gap:4px; color:var(--muted); font-size:10.5px; white-space:nowrap; }
 .rt-toggle input { accent-color:var(--blue); }
 .col-tools { display:flex; align-items:center; gap:5px; }
-.summary-box { display:none; background:rgba(29,155,240,.07); border:.5px solid rgba(29,155,240,.25); border-radius:8px; padding:8px 9px; color:var(--text); font-size:11.5px; line-height:1.55; white-space:pre-wrap; }
+.summary-box { display:none; position:relative; background:rgba(29,155,240,.07); border:.5px solid rgba(29,155,240,.25); border-radius:8px; padding:8px 25px 8px 9px; color:var(--text); font-size:11.5px; line-height:1.55; white-space:pre-wrap; }
 .summary-box.show { display:block; }
+.summary-close { position:absolute; right:6px; top:5px; background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:11px; padding:2px 4px; }
+.summary-close:hover { color:var(--blue); }
 .sdot { width:5px; height:5px; border-radius:50%; background:#2a2a2a; flex-shrink:0; transition:background .3s; }
 .sdot.loading { background:var(--blue); animation:blink .8s infinite; }
 .sdot.ok      { background:var(--green); }
@@ -103,7 +107,7 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 .tw-cred { color:#8b98a5; cursor:help; }
 
 /* Column name */
-.col-name-wrap { position:relative; display:flex; align-items:center; justify-content:center; padding:4px 8px 2px; }
+.col-name-wrap { position:relative; display:flex; align-items:center; justify-content:center; padding:4px 28px 2px; }
 .drag-handle { position:absolute; left:2px; top:2px; color:#3a3f44; cursor:grab; border:none; background:transparent; font-size:12px; padding:2px 4px; }
 .drag-handle:active { cursor:grabbing; }
 .col.drag-over { box-shadow:inset 0 0 0 1px var(--blue); }
@@ -111,6 +115,9 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
 .col-name:focus { border-bottom-color:var(--blue); color:var(--text); }
 .col-badge { position:absolute; top:2px; right:4px; background:var(--blue); color:#fff; font-size:10px; font-weight:700; padding:1px 5px; border-radius:10px; pointer-events:none; display:none; }
 .col-badge.show { display:inline-block; }
+.collapse-btn { position:absolute; right:2px; top:2px; background:transparent; border:none; color:#3a3f44; cursor:pointer; font-size:12px; line-height:1; padding:3px 5px; }
+.collapse-btn:hover { color:var(--blue); }
+.col-badge.show + .collapse-btn { right:28px; }
 
 /* Overlay */
 #overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.88); z-index:999; align-items:center; justify-content:center; }
@@ -325,18 +332,20 @@ function buildGrid() {
     const col = document.createElement('div');
     col.className = 'col'; col.id = `col-${i}`;
     const savedName = loadColName(i) || p.label || `Coluna ${i+1}`;
+    const collapsed = loadColCollapsed(i);
     col.innerHTML = `
-      <div class="col-head">
+      <div class="col-head ${collapsed ? 'collapsed' : ''}" id="head${i}">
         <div class="col-name-wrap">
           <button class="drag-handle" draggable="true" data-col="${i}" title="Arrastar coluna">⋮⋮</button>
           <input class="col-name" id="colname${i}" value="${esc(savedName)}" placeholder="Nome da coluna" maxlength="40">
           <span class="col-badge" id="badge${i}"></span>
+          <button class="collapse-btn" id="collapse${i}" onclick="toggleColumnTop(${i})" title="${collapsed ? 'Expandir topo' : 'Recolher topo'}">${collapsed ? '+' : '-'}</button>
         </div>
-        <div class="ch-top">
+        <div class="ch-top collapsible">
           <span class="col-n">${i+1}</span>
           <textarea id="q${i}" spellcheck="false" placeholder="Query...">${esc(loadColQuery(i) ?? p.query)}</textarea>
         </div>
-        <div class="ch-bot">
+        <div class="ch-bot collapsible">
           <select class="sort-sel" id="sort${i}">
             <option value="live" ${(loadColSort(i)||p.sort)==='live'?'selected':''}>Recentes · X live</option>
             <option value="top"  ${(loadColSort(i)||p.sort)==='top'?'selected':''}>Top · X top</option>
@@ -348,14 +357,17 @@ function buildGrid() {
           <div class="sdot" id="sdot${i}"></div>
           <button class="rbtn" onclick="refreshOne(${i})" title="Refresh">↺</button>
         </div>
-        <div class="summary-box" id="summary${i}"></div>
-        <div class="template-row">
+        <div class="summary-box collapsible" id="summarybox${i}">
+          <button class="summary-close" onclick="closeSummary(${i})" title="Fechar resumo IA">X</button>
+          <div id="summary${i}"></div>
+        </div>
+        <div class="template-row collapsible">
           <select id="tmpl${i}" title="Templates de query salvos">${templateOptions()}</select>
           <button class="mini-btn" onclick="applyQueryTemplate(${i})" title="Aplicar template nesta coluna">Aplicar</button>
           <button class="mini-btn" onclick="saveQueryTemplate(${i})" title="Salvar query atual como template">Salvar</button>
           <button class="mini-btn" onclick="deleteQueryTemplate(${i})" title="Excluir template selecionado">Excluir</button>
         </div>
-        <div class="col-filters">
+        <div class="col-filters collapsible">
           <div class="filter-field"><label for="from${i}">Desde</label><input type="date" id="from${i}" value="${esc(loadColDateFrom(i) || '')}" title="Desde"></div>
           <div class="filter-field"><label for="to${i}">Até</label><input type="date" id="to${i}" value="${esc(loadColDateTo(i) || '')}" title="Até"></div>
           <div class="filter-field"><label for="minf${i}">Likes mínimos</label><input type="number" id="minf${i}" min="0" value="${esc(loadColMinFaves(i) || '')}" placeholder="0" title="Mínimo de likes"></div>
@@ -717,15 +729,16 @@ function xSvg() { return `<svg width="22" height="22" viewBox="0 0 24 24" fill="
 
 // ── IA sob demanda ───────────────────────────────────────
 async function summarizeColumn(col) {
-  const box = document.getElementById(`summary${col}`);
+  const box = document.getElementById(`summarybox${col}`);
+  const textEl = document.getElementById(`summary${col}`);
   const tweets = colResults[col] || [];
-  if (!box) return;
+  if (!box || !textEl) return;
   box.classList.add('show');
   if (!tweets.length) {
-    box.textContent = 'Sem tweets carregados para resumir.';
+    textEl.textContent = 'Sem tweets carregados para resumir.';
     return;
   }
-  box.textContent = 'Gerando resumo...';
+  textEl.textContent = 'Gerando resumo...';
   try {
     const r = await fetch('/api/ai/column-summary', {
       method:'POST',
@@ -736,10 +749,40 @@ async function summarizeColumn(col) {
       }),
     });
     const data = await r.json();
-    box.textContent = r.ok ? (data.summary || 'Resumo IA indisponível para esta coluna.') : (data.error || 'Erro ao gerar resumo IA.');
+    textEl.textContent = r.ok ? formatSummaryText(data.summary || 'Resumo IA indisponível para esta coluna.') : (data.error || 'Erro ao gerar resumo IA.');
   } catch {
-    box.textContent = 'Erro de rede ao gerar resumo.';
+    textEl.textContent = 'Erro de rede ao gerar resumo.';
   }
+}
+
+function closeSummary(col) {
+  document.getElementById(`summarybox${col}`)?.classList.remove('show');
+}
+
+function formatSummaryText(text) {
+  const lines = String(text || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
+  let bullets = 0;
+  const kept = [];
+  for (const line of lines) {
+    const isBullet = /^[-*•]\s+/.test(line);
+    if (isBullet) {
+      if (bullets >= 6) continue;
+      bullets += 1;
+    }
+    kept.push(line);
+  }
+  return kept.slice(0, bullets ? 12 : 6).join('\n');
+}
+
+function toggleColumnTop(col) {
+  const head = document.getElementById(`head${col}`);
+  const btn = document.getElementById(`collapse${col}`);
+  if (!head || !btn) return;
+  const collapsed = !head.classList.contains('collapsed');
+  head.classList.toggle('collapsed', collapsed);
+  btn.textContent = collapsed ? '+' : '-';
+  btn.title = collapsed ? 'Expandir topo' : 'Recolher topo';
+  saveColCollapsed(col, collapsed);
 }
 
 // ── Fila editorial e WhatsApp ────────────────────────────
@@ -930,6 +973,7 @@ function saveColMinRetweets(col, v) { localStorage.setItem(lsKey(col,'min_retwee
 function saveColExcludeRt(col, v){ localStorage.setItem(lsKey(col,'exclude_rt'), v ? '1' : '0'); }
 function saveColFilterMedia(col, v){ localStorage.setItem(lsKey(col,'filter_media'), v ? '1' : '0'); }
 function saveColFilterVerified(col, v){ localStorage.setItem(lsKey(col,'filter_verified'), v ? '1' : '0'); }
+function saveColCollapsed(col, v){ localStorage.setItem(lsKey(col,'collapsed'), v ? '1' : '0'); }
 function loadColQuery(col)    { return localStorage.getItem(lsKey(col,'query')); }
 function loadColSort(col)     { return localStorage.getItem(lsKey(col,'sort')); }
 function loadColName(col)     { return localStorage.getItem(lsKey(col,'name')); }
@@ -941,6 +985,7 @@ function loadColMinRetweets(col) { return localStorage.getItem(lsKey(col,'min_re
 function loadColExcludeRt(col){ return localStorage.getItem(lsKey(col,'exclude_rt')) === '1'; }
 function loadColFilterMedia(col){ return localStorage.getItem(lsKey(col,'filter_media')) === '1'; }
 function loadColFilterVerified(col){ return localStorage.getItem(lsKey(col,'filter_verified')) === '1'; }
+function loadColCollapsed(col){ return localStorage.getItem(lsKey(col,'collapsed')) === '1'; }
 
 // ── Alert config ─────────────────────────────────────────
 async function openAlertModal() {

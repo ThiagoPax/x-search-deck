@@ -79,13 +79,15 @@ async def summarize_column(tweets: list[dict[str, Any]], column_name: str = "") 
 
     prompt = f"""
 Voce e um editor de esporte trabalhando em tempo real.
-Resuma em portugues, de forma curta e acionavel, os tweets atuais da coluna "{column_name or 'sem nome'}".
+Resuma em portugues do Brasil, de forma executiva e muito curta, os tweets atuais da coluna "{column_name or 'sem nome'}".
 
-Entregue:
-- 3 a 5 bullets com os principais assuntos;
-- sinais de pauta ou controversia;
-- o que merece monitoramento nos proximos minutos;
-- nao invente fatos que nao estejam nos tweets.
+Formato obrigatorio:
+- Maximo de 6 bullets curtos no total.
+- Agrupe em: Principais assuntos; Sinais de pauta/controversia; O que monitorar.
+- Cada bullet deve ter no maximo 18 palavras.
+- Priorize utilidade para redacao: nomes, fatos, tensoes e proximas verificacoes.
+- Nao escreva introducao, conclusao ou explicacoes.
+- Nao invente fatos que nao estejam nos tweets.
 
 Tweets:
 {_compact_tweets(compact_tweets)}
@@ -94,7 +96,7 @@ Tweets:
     payload = {
         "model": model,
         "input": prompt,
-        "max_output_tokens": 700,
+        "max_output_tokens": 260,
     }
     headers = {
         "Authorization": f"Bearer {api_key}",
