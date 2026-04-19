@@ -68,6 +68,8 @@ def apply_column_filters(cfg: dict) -> str:
     q = re.sub(r"\s+", " ", (cfg.get("query") or "").replace("\n", " ")).strip()
     date_from = (cfg.get("date_from") or "").strip()
     date_to = (cfg.get("date_to") or "").strip()
+    language = (cfg.get("language") or "").strip().lower()
+    muted = (cfg.get("muted") or "").strip()
     min_faves = _clean_int(cfg.get("min_faves"))
     min_replies = _clean_int(cfg.get("min_replies"))
     min_retweets = _clean_int(cfg.get("min_retweets"))
@@ -87,7 +89,42 @@ def apply_column_filters(cfg: dict) -> str:
         q = f"{q} filter:media".strip()
     if cfg.get("filter_verified") and "filter:verified" not in q:
         q = f"{q} filter:verified".strip()
+    if re.fullmatch(r"[a-z]{2,3}", language) and "lang:" not in q:
+        q = f"{q} lang:{language}".strip()
+    for negative in _negative_query_terms(muted):
+        if negative not in q:
+            q = f"{q} {negative}".strip()
     return q
+
+
+def _negative_query_terms(raw: str) -> list[str]:
+    if not raw:
+        return []
+    pieces = re.findall(r'"[^"]+"|[^,\n;]+', raw)
+    terms: list[str] = []
+    seen: set[str] = set()
+    for piece in pieces:
+        term = piece.strip()
+        if not term:
+            continue
+        quoted = len(term) >= 2 and term[0] == '"' and term[-1] == '"'
+        inner = term[1:-1].strip() if quoted else term
+        if not inner:
+            continue
+        if term.startswith("-"):
+            negative = term
+        elif inner.startswith("@") and re.fullmatch(r"@[A-Za-z0-9_]{1,15}", inner):
+            negative = f"-from:{inner[1:]}"
+        elif re.fullmatch(r"from:[A-Za-z0-9_]{1,15}", inner, flags=re.I):
+            negative = f"-{inner}"
+        elif quoted or re.search(r"\s", inner):
+            negative = f'-"{inner}"'
+        else:
+            negative = f"-{inner}"
+        if negative not in seen:
+            seen.add(negative)
+            terms.append(negative)
+    return terms
 
 
 def _clean_int(value) -> Optional[int]:
@@ -337,12 +374,25 @@ class BrowserManager:
 class XDeckApp:
     def __init__(self):
         self.bm = BrowserManager()
-        self.subscriptions: dict[int, dict] = {}
-        self.results:       dict[int, list] = {}
+        self.subscriptions: dict[int | str, dict] = {}
+        self.results:       dict[int | str, list] = {}
         self.clients:       set[web.WebSocketResponse] = set()
         self._refresh_task: Optional[asyncio.Task] = None
         self._refresh_again = False
         self._generation = 0
+
+    @staticmethod
+    def _col_key(idx: int, col: dict):
+        raw = col.get("id")
+        if raw not in ("", None):
+            return str(raw)
+        return idx
+
+    @staticmethod
+    def _col_label(col_id) -> str:
+        if isinstance(col_id, int):
+            return f"Col {col_id + 1}"
+        return f"Col {col_id}"
 
     async def startup(self, app):
         await self.bm.start()
@@ -383,6 +433,15 @@ class XDeckApp:
             "sent": sent,
             "message": "Preview enviado" if sent else "Sem tweets acima do threshold ou SMTP/destinatarios ausentes"
         }, status=status)
+
+    async def alert_test_email_handler(self, request):
+        scheduler = get_scheduler()
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        result = scheduler.send_test_email(data if isinstance(data, dict) else {})
+        return web.json_response(result, status=200 if result.get("ok") else 400)
 
     async def column_summary_handler(self, request):
         try:
@@ -434,7 +493,7 @@ class XDeckApp:
                     continue
                 if data.get("type") == "subscribe":
                     self.subscriptions = {
-                        i: col for i, col in enumerate(data.get("columns", []))
+                        self._col_key(i, col): col for i, col in enumerate(data.get("columns", []))
                         if col.get("query", "").strip()
                     }
                     self._generation += 1
@@ -452,7 +511,7 @@ class XDeckApp:
         log.info(f"Cliente desconectado ({len(self.clients)})")
         return ws
 
-    async def refresh_column(self, col_id: int, cfg: Optional[dict] = None, generation: Optional[int] = None):
+    async def refresh_column(self, col_id, cfg: Optional[dict] = None, generation: Optional[int] = None):
         cfg = cfg or self.subscriptions.get(col_id)
         if not cfg or not cfg.get("query", "").strip():
             return
@@ -460,14 +519,15 @@ class XDeckApp:
         try:
             filtered_query = apply_column_filters(cfg)
             url = build_url(filtered_query, cfg.get("sort","live"))
-            log.info(f"Col {col_id+1}: coletando...")
+            label = self._col_label(col_id)
+            log.info(f"{label}: coletando...")
             tweets = await self.bm.fetch(url)
             current_cfg = self.subscriptions.get(col_id)
             if generation is not None and generation != self._generation:
-                log.info(f"Col {col_id+1}: resultado antigo descartado")
+                log.info(f"{label}: resultado antigo descartado")
                 return
             if current_cfg is not None and _cfg_signature(current_cfg) != _cfg_signature(cfg):
-                log.info(f"Col {col_id+1}: configuração mudou durante coleta; descartando")
+                log.info(f"{label}: configuração mudou durante coleta; descartando")
                 return
             if not tweets and self.results.get(col_id):
                 ts = datetime.now().strftime("%H:%M:%S")
@@ -475,18 +535,18 @@ class XDeckApp:
                     "tweets":self.results[col_id],"updated":f"{ts} · mantido","count":len(self.results[col_id])})
                 await self.broadcast({"type":"status","column":col_id,
                     "status":"error","message":"X não renderizou resultados nesta coleta; mantendo últimos tweets."})
-                log.warning(f"Col {col_id+1}: 0 tweets transitório; mantendo {len(self.results[col_id])}")
+                log.warning(f"{label}: 0 tweets transitório; mantendo {len(self.results[col_id])}")
                 return
             self.results[col_id] = tweets
             ts = datetime.now().strftime("%H:%M:%S")
             await self.broadcast({"type":"results","column":col_id,
                 "tweets":tweets,"updated":ts,"count":len(tweets)})
             await self.broadcast({"type":"status","column":col_id,"status":"ok"})
-            log.info(f"Col {col_id+1}: ✅ {len(tweets)} tweets")
-            col_label = cfg.get("name") or str(col_id + 1)
+            log.info(f"{label}: ✅ {len(tweets)} tweets")
+            col_label = cfg.get("name") or label
             get_scheduler().ingest(col_id, col_label, tweets)
         except Exception as e:
-            log.error(f"Col {col_id+1}: ❌ {e}")
+            log.error(f"{self._col_label(col_id)}: ❌ {e}")
             await self.broadcast({"type":"status","column":col_id,
                 "status":"error","message":str(e)[:120]})
 
@@ -502,7 +562,7 @@ class XDeckApp:
             self._refresh_again = False
             generation = self._generation
             snapshot = {col_id: cfg.copy() for col_id, cfg in self.subscriptions.items()}
-            for col_id in sorted(snapshot):
+            for col_id in sorted(snapshot, key=str):
                 await self.refresh_column(col_id, snapshot[col_id], generation)
                 if generation != self._generation:
                     log.info("Subscriptions mudaram; interrompendo ciclo antigo")
@@ -542,6 +602,7 @@ def create_app():
     app.router.add_get("/api/alerts/config", deck.alert_config_handler)
     app.router.add_post("/api/alerts/config", deck.alert_config_handler)
     app.router.add_post("/api/alerts/preview", deck.alert_preview_handler)
+    app.router.add_post("/api/alerts/test-email", deck.alert_test_email_handler)
     app.router.add_post("/api/ai/column-summary", deck.column_summary_handler)
     app.on_startup.append(deck.startup)
     app.on_shutdown.append(deck.shutdown)

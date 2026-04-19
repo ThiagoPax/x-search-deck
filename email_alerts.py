@@ -13,7 +13,9 @@ import json
 import logging
 import os
 import re
+import socket
 import smtplib
+import ssl
 from copy import deepcopy
 from datetime import datetime, time as dtime, timedelta
 from email.mime.multipart import MIMEMultipart
@@ -25,10 +27,19 @@ import pytz
 
 log = logging.getLogger(__name__)
 
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)) or default)
+    except Exception:
+        return default
+
+
 SMTP_HOST = os.environ.get("SMTP_HOST", "")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
+SMTP_PORT_RAW = os.environ.get("SMTP_PORT", "587")
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASS = os.environ.get("SMTP_PASS", "")
+SMTP_TIMEOUT = max(1, _env_int("SMTP_TIMEOUT", 20))
 ALERT_EMAILS_ENV = [e.strip() for e in os.environ.get("ALERT_EMAILS", "").split(",") if e.strip()]
 DATA_DIR = Path(os.environ.get("DATA_DIR", ".data"))
 ALERT_CONFIG_PATH = Path(os.environ.get("ALERT_CONFIG_PATH", DATA_DIR / "alert_config.json"))
@@ -177,29 +188,138 @@ def engagement_score(tweet: dict) -> int:
     )
 
 
-def send_alert_email(subject: str, body_html: str, recipients: list[str]) -> bool:
-    if not (SMTP_HOST and SMTP_USER and SMTP_PASS and recipients):
-        log.warning("SMTP or alert recipients not configured - skipping alert email")
-        return False
+def _smtp_port() -> Optional[int]:
+    try:
+        port = int(SMTP_PORT_RAW)
+    except Exception:
+        return None
+    if not 1 <= port <= 65535:
+        return None
+    return port
+
+
+def _clean_recipients(recipients: list[str] | str | None) -> list[str]:
+    if isinstance(recipients, str):
+        recipients = re.split(r"[,\n;]+", recipients)
+    return [str(e).strip() for e in (recipients or []) if str(e).strip()]
+
+
+def validate_smtp_config(recipients: list[str] | str | None) -> dict:
+    clean = _clean_recipients(recipients)
+    port = _smtp_port()
+    missing = []
+    if not SMTP_HOST:
+        missing.append("SMTP_HOST")
+    if port is None:
+        missing.append("SMTP_PORT valido")
+    if not SMTP_USER:
+        missing.append("SMTP_USER")
+    if not SMTP_PASS:
+        missing.append("SMTP_PASS")
+    if not clean:
+        missing.append("destinatarios")
+    if missing:
+        return {
+            "ok": False,
+            "message": "Configuracao SMTP incompleta: " + ", ".join(missing),
+            "recipients": clean,
+            "port": port,
+        }
+    return {"ok": True, "message": "Configuracao SMTP valida", "recipients": clean, "port": port}
+
+
+def _smtp_error_message(exc: Exception) -> str:
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return "Falha de autenticacao SMTP. Verifique SMTP_USER e SMTP_PASS."
+    if isinstance(exc, smtplib.SMTPConnectError):
+        return "Falha ao conectar ao servidor SMTP. Verifique SMTP_HOST e SMTP_PORT."
+    if isinstance(exc, smtplib.SMTPServerDisconnected):
+        return "Servidor SMTP desconectou durante o envio. Verifique porta, TLS/SSL e credenciais."
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        return "Servidor SMTP recusou todos os destinatarios."
+    if isinstance(exc, smtplib.SMTPSenderRefused):
+        return "Servidor SMTP recusou o remetente configurado em SMTP_USER."
+    if isinstance(exc, smtplib.SMTPDataError):
+        return "Servidor SMTP recusou o conteudo da mensagem."
+    if isinstance(exc, smtplib.SMTPNotSupportedError):
+        return "Servidor SMTP nao suporta STARTTLS nessa porta. Verifique SMTP_PORT ou use SSL direto na porta 465."
+    if isinstance(exc, smtplib.SMTPException):
+        return f"Falha SMTP: {exc.__class__.__name__}."
+    if isinstance(exc, ssl.SSLError):
+        return "Falha de TLS/SSL. Verifique se a porta exige SSL direto ou STARTTLS."
+    if isinstance(exc, socket.gaierror):
+        return "Host SMTP nao resolvido por DNS. Verifique SMTP_HOST."
+    if isinstance(exc, TimeoutError) or isinstance(exc, socket.timeout):
+        return "Timeout ao conectar ou enviar pelo SMTP."
+    if isinstance(exc, OSError):
+        if getattr(exc, "errno", None) == 101:
+            return "Rede indisponivel para o servidor SMTP ([Errno 101] Network is unreachable)."
+        return f"Erro de rede ao enviar SMTP: {exc.strerror or exc.__class__.__name__}."
+    return f"Erro inesperado ao enviar SMTP: {exc.__class__.__name__}."
+
+
+def send_alert_email_result(subject: str, body_html: str, recipients: list[str] | str | None) -> dict:
+    validation = validate_smtp_config(recipients)
+    timestamp = datetime.now(pytz.timezone("America/Sao_Paulo")).isoformat(timespec="seconds")
+    clean_recipients = validation["recipients"]
+    if not validation["ok"]:
+        log.warning("Alert email skipped: %s", validation["message"])
+        return {
+            "ok": False,
+            "message": validation["message"],
+            "recipients": clean_recipients,
+            "timestamp": timestamp,
+        }
+
+    port = validation["port"]
+    server = None
     try:
         msg = MIMEMultipart()
         msg["From"] = SMTP_USER
-        msg["To"] = ", ".join(recipients)
+        msg["To"] = ", ".join(clean_recipients)
         msg["Subject"] = subject
         msg.attach(MIMEText(body_html, "html", "utf-8"))
-        if SMTP_PORT == 465:
-            server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT)
+        if port == 465:
+            server = smtplib.SMTP_SSL(SMTP_HOST, port, timeout=SMTP_TIMEOUT)
         else:
-            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
+            server = smtplib.SMTP(SMTP_HOST, port, timeout=SMTP_TIMEOUT)
             server.starttls()
         server.login(SMTP_USER, SMTP_PASS)
-        server.sendmail(SMTP_USER, recipients, msg.as_string())
-        server.quit()
-        log.info("Alert email sent: %s", subject)
-        return True
+        server.sendmail(SMTP_USER, clean_recipients, msg.as_string())
+        log.info("Alert email sent: subject=%s recipients=%s host=%s port=%s", subject, len(clean_recipients), SMTP_HOST, port)
+        return {
+            "ok": True,
+            "message": "E-mail enviado com sucesso.",
+            "recipients": clean_recipients,
+            "timestamp": timestamp,
+        }
     except Exception as e:
-        log.error("Failed to send alert email: %s", e)
-        return False
+        message = _smtp_error_message(e)
+        log.error(
+            "Failed to send alert email: %s subject=%s recipients=%s host=%s port=%s error_type=%s",
+            message,
+            subject,
+            len(clean_recipients),
+            SMTP_HOST or "(empty)",
+            port,
+            e.__class__.__name__,
+        )
+        return {
+            "ok": False,
+            "message": message,
+            "recipients": clean_recipients,
+            "timestamp": timestamp,
+        }
+    finally:
+        if server is not None:
+            try:
+                server.quit()
+            except Exception:
+                pass
+
+
+def send_alert_email(subject: str, body_html: str, recipients: list[str]) -> bool:
+    return bool(send_alert_email_result(subject, body_html, recipients).get("ok"))
 
 
 def _build_email_html(title: str, sections: list[dict], deck_url: str = "", intro: str = "") -> str:
@@ -282,6 +402,30 @@ class AlertScheduler:
 
     def get_config(self) -> dict:
         return deepcopy(self.config)
+
+    def send_test_email(self, cfg_override: Optional[dict] = None) -> dict:
+        cfg = _merge_config({**self.config, **(cfg_override or {})})
+        now = datetime.now(self.tz)
+        deck_url = cfg.get("deck_url", "")
+        intro = (
+            f"Este e-mail foi disparado pelo botao de teste do X Search Deck em "
+            f"{now.strftime('%d/%m/%Y %H:%M:%S')}."
+        )
+        if deck_url:
+            intro += f" URL do deck: {deck_url}"
+        html_body = _build_email_html(
+            "Teste de e-mail - X Search Deck",
+            [],
+            deck_url,
+            intro=intro,
+        )
+        result = send_alert_email_result(
+            "[TESTE X SEARCH DECK] envio de e-mail",
+            html_body,
+            cfg.get("recipients") or [],
+        )
+        result["timestamp"] = now.isoformat(timespec="seconds")
+        return result
 
     def is_within_window(self, now: Optional[datetime] = None) -> bool:
         return self.current_window(now) is not None

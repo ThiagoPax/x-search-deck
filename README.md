@@ -80,10 +80,19 @@ SMTP para alertas por e-mail:
 | `SMTP_PORT` | Porta SMTP, normalmente `587` ou `465` |
 | `SMTP_USER` | Usuário/remetente |
 | `SMTP_PASS` | Senha ou app password |
+| `SMTP_TIMEOUT` | Timeout em segundos para conexão/envio, padrão `20` |
 | `ALERT_EMAILS` | Lista inicial de destinatários separados por vírgula |
 
 As credenciais SMTP ficam somente no ambiente. Destinatários, janelas, frequência e thresholds são editáveis na interface e persistidos em `ALERT_CONFIG_PATH`.
 O estado operacional de envios únicos por janela, como alerta de silêncio e digest final, é salvo em `ALERT_STATE_PATH`.
+
+Erros comuns no teste SMTP:
+
+- `Configuracao SMTP incompleta`: falta `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` ou destinatário.
+- `Host SMTP nao resolvido por DNS`: `SMTP_HOST` inválido ou indisponível no ambiente.
+- `Rede indisponivel`: o ambiente de deploy não consegue abrir conexão de saída para o SMTP.
+- `Falha de autenticacao SMTP`: usuário/senha ou app password inválidos.
+- `Falha de TLS/SSL`: porta e modo de segurança incompatíveis. Use `465` para SSL direto ou `587` para STARTTLS.
 
 OpenAI para recursos editoriais sob demanda:
 
@@ -102,15 +111,47 @@ Sem `OPENAI_API_KEY`, a aplicação continua funcionando; apenas o resumo IA ret
   - `Top` usa o modo `f=top` do próprio X; o deck não reordena localmente por engajamento.
 - Use os campos de data por coluna para injetar `since:` e `until:` automaticamente.
 - Marque `sem RT` para adicionar `-filter:retweets` à busca daquela coluna.
-- Use `likes`, `replies`, `RTs`, `mídia` e `verificado` para adicionar `min_faves:`, `min_replies:`, `min_retweets:`, `filter:media` e `filter:verified`.
-- Clique no nome da coluna para renomear; nomes, queries, ordenação, filtros e número de colunas persistem no navegador.
+- Use `likes`, `replies`, `RTs`, `mídia`, `verificado`, `idioma` e `silenciar` para adicionar filtros por coluna sem editar manualmente toda a query.
+- O filtro de idioma injeta `lang:pt`, `lang:en`, `lang:es` ou `lang:fr` apenas quando a query manual ainda não contém `lang:`.
+- A caixa `Silenciar termos/contas` aceita palavras, expressões entre aspas, `@conta`, `from:conta` e padrões negativos como `-from:conta`.
+- Clique no nome da coluna para renomear; nomes, queries, ordenação, filtros, páginas e layout persistem no navegador.
 - Use o seletor `Templates salvos...` em cada coluna para aplicar, salvar ou excluir templates de query persistidos no navegador.
 - Arraste o handle `⋮⋮` no cabeçalho para reorganizar colunas preservando o estado salvo de cada uma.
+- Use `+ Coluna` para criar quantas colunas forem necessárias e `×` no topo da coluna para remover. Cada coluna tem ID persistente e não depende mais da posição.
+- A tela mantém até 5 colunas visíveis ao mesmo tempo. A partir da 6ª, o painel usa rolagem horizontal suave sem comprimir indefinidamente as colunas.
+- Use a navegação lateral esquerda para criar, renomear, trocar e excluir páginas/workspaces de colunas. Cada página guarda seu próprio conjunto de colunas.
+- Use `Limpar` em uma coluna para apagar os resultados exibidos sem apagar query ou filtros. A coluna segue monitorando e passa a mostrar apenas tweets novos em relação ao baseline limpo.
+- Use `Histórico de queries...` para reaplicar buscas recentes. O histórico é leve, global ao navegador, deduplicado e separado dos templates salvos.
 - O botão `Ao vivo` mantém as colunas inscritas no auto-refresh do backend. Ao pausar, as subscriptions são removidas até uma nova busca.
 - O badge azul na coluna mostra quantos tweets novos chegaram desde o último refresh visualizado.
 - O texto do tweet é exibido completo, sem truncamento visual.
 - Termos relevantes da query são destacados no texto quando aparecem no tweet.
 - Quando o X expõe fotos, GIF thumbs ou thumbs de vídeo no DOM, o card tenta exibir mídia inline.
+
+### Modelo de colunas e páginas
+
+O estado visual do deck agora usa `localStorage` em `xdeck_state_v2`, com esta estrutura lógica:
+
+- `pages[]`: lista de páginas/workspaces.
+- `page.id`: ID persistente da página ativa ou arquivada.
+- `page.columns[]`: colunas da página, em ordem.
+- `column.id`: ID persistente usado pela interface e pelo WebSocket.
+- `column.query`, `sort`, `name`, `date_from`, `date_to`, filtros avançados, `language`, `muted` e `collapsed`: estado operacional da coluna.
+
+Na primeira abertura após a atualização, o frontend tenta migrar o estado antigo baseado em `xdeck_col0_*`, `xdeck_col1_*` etc. para uma página `Principal`. A migração preserva nome, query, ordenação, datas, filtros avançados e topo recolhido quando esses valores existirem. As chaves antigas não são apagadas, servindo como fallback manual caso um navegador tenha estado local inconsistente.
+
+Compatibilidade operacional:
+
+- clientes antigos que enviam colunas sem `id` continuam funcionando; o backend usa o índice como fallback;
+- clientes novos enviam `id` estável, então drag-and-drop, remoção e páginas não mudam a identidade da coluna;
+- alertas, digest, silêncio editorial e resumo IA continuam recebendo label e tweets por coluna pelo mesmo fluxo de ingestão.
+
+Limitações conhecidas:
+
+- o layout persiste ordem, páginas e estado da coluna, mas ainda não há ajuste manual de largura por coluna;
+- `Limpar` mantém o baseline em memória da aba atual. Após recarregar o navegador, o deck preserva query/filtros, mas não reconstrói o baseline limpo;
+- o histórico de queries é global ao navegador, não sincronizado entre dispositivos;
+- a exclusão de página/coluna usa confirmação simples do navegador, sem lixeira.
 
 ## Fase 3 Editorial
 
@@ -196,6 +237,8 @@ Durante uma janela ativa, o sistema envia um digest a cada N minutos com até 5 
 
 O preview automático é enviado antes do começo da janela, conforme a antecedência configurada. O botão `Enviar preview` permite testar manualmente com os tweets já coletados.
 
+O botão `Enviar e-mail teste` no modal de alertas chama `/api/alerts/test-email` e tenta um envio real com os destinatários preenchidos no modal, mesmo antes de salvar. O resultado do último teste da sessão fica visível no modal e informa sucesso/falha, horário e destinatários usados. Esse teste valida apenas SMTP e destinatários; ele não altera preview, digest periódico, spike, silêncio editorial ou digest final.
+
 ### Alerta de silêncio
 
 Quando ativado, o alerta de silêncio monitora cada janela ativa e envia no máximo um e-mail por janela se nenhum tweet novo acima do threshold configurado aparecer pelo intervalo definido em minutos.
@@ -257,11 +300,20 @@ Implementado nesta rodada:
 - contador de novos tweets por coluna;
 - tweet completo sem truncamento visual;
 - `.gitignore` para arquivos locais e caches.
+- fechamento estrutural pré-Fase 4:
+  - estado `xdeck_state_v2` com páginas/workspaces e colunas identificadas por ID;
+  - migração segura do modelo antigo por índice para a página `Principal`;
+  - colunas ilimitadas com limite visual confortável de 5 colunas e rolagem horizontal;
+  - criação, renomeação, troca e exclusão de páginas pela navegação lateral esquerda;
+  - criação e remoção livre de colunas dentro da página ativa;
+  - filtro de idioma por coluna sem sobrescrever `lang:` manual;
+  - silenciamento de termos, expressões e contas por coluna;
+  - limpeza de resultados da coluna para monitorar apenas novos tweets na aba atual;
+  - histórico recente de queries persistido no navegador;
+  - caixa de query redimensionável em altura.
 
 Pendências maiores do planejamento:
 
-- adicionar/remover colunas sem limite fixo;
 - largura ajustável;
-- histórico cronológico de queries além dos templates salvos;
 - cards de link externos completos;
 - integrações externas além de cópia para WhatsApp.
