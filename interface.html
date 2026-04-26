@@ -22,6 +22,9 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif
 #conn-dot.err { background:var(--red); }
 #conn-dot.spin { background:var(--amber); animation:blink 1s infinite; }
 #conn-label { font-size:11px; color:var(--muted); }
+.op-mode { font-size:11px; color:var(--muted); padding:2px 8px; border:.5px solid var(--border); border-radius:999px; }
+.op-mode.critical { color:var(--green); border-color:rgba(0,186,124,.4); }
+.op-mode.manual { color:#ffb357; border-color:rgba(255,179,87,.45); }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
 .tbr { margin-left:auto; display:flex; gap:8px; align-items:center; }
 select.tb-sel, button.tb-btn { background:none; border:.5px solid var(--border); border-radius:20px; color:var(--muted); padding:4px 12px; font-size:11px; cursor:pointer; outline:none; transition:border-color .15s,color .15s; }
@@ -201,6 +204,7 @@ select.sort-sel { background:var(--bg); border:.5px solid var(--border); border-
   <div class="logo"><em>𝕏</em> Search Deck</div>
   <div id="conn-dot" class="err"></div>
   <div id="conn-label">conectando...</div>
+  <div id="operational-mode" class="op-mode manual">Modo manual: automações pausadas fora da janela crítica</div>
   <div class="tbr">
     <button class="tb-btn" onclick="addColumn()">+ Coluna</button>
     <button class="tb-btn" onclick="subscribeAll()">↺ Atualizar</button>
@@ -368,6 +372,7 @@ let visualResultsCache = loadVisualResultsCache();
 let alertConfig = null;
 let editorialQueue = loadQueue();
 let liveMode = localStorage.getItem('xdeck_live_mode') !== '0';
+let operationalMode = 'manual_only';
 
 // ── Grid ──────────────────────────────────────────────────
 function newId(prefix) {
@@ -804,7 +809,7 @@ function connect() {
     setDot('on', 'conectado');
     document.getElementById('overlay').classList.remove('show');
     updateLiveButton();
-    if (liveMode) subscribeAll();
+    if (liveMode && operationalMode === 'critical') subscribeAll();
   };
   ws.onmessage = e => {
     let d; try { d = JSON.parse(e.data); } catch { return; }
@@ -879,6 +884,12 @@ function refreshOne(idx) {
 }
 
 function toggleLiveMode() {
+  if (operationalMode !== 'critical') {
+    liveMode = false;
+    localStorage.setItem('xdeck_live_mode', '0');
+    updateLiveButton();
+    return;
+  }
   liveMode = !liveMode;
   localStorage.setItem('xdeck_live_mode', liveMode ? '1' : '0');
   updateLiveButton();
@@ -889,8 +900,35 @@ function toggleLiveMode() {
 function updateLiveButton() {
   const btn = document.getElementById('live-btn');
   if (!btn) return;
-  btn.classList.toggle('active', liveMode);
-  btn.textContent = liveMode ? 'Ao vivo ligado' : 'Ao vivo pausado';
+  const allowed = operationalMode === 'critical';
+  btn.disabled = !allowed;
+  btn.classList.toggle('active', allowed && liveMode);
+  btn.textContent = !allowed ? 'Ao vivo pausado (plantão)' : (liveMode ? 'Ao vivo ligado' : 'Ao vivo pausado');
+}
+
+async function refreshOperationalMode() {
+  try {
+    const r = await fetch('/api/operational-mode', { cache:'no-store' });
+    const data = await r.json();
+    operationalMode = data?.mode === 'critical' ? 'critical' : 'manual_only';
+  } catch {
+    operationalMode = 'manual_only';
+  }
+  const el = document.getElementById('operational-mode');
+  if (el) {
+    if (operationalMode === 'critical') {
+      el.className = 'op-mode critical';
+      el.textContent = 'Modo plantão ativo';
+    } else {
+      el.className = 'op-mode manual';
+      el.textContent = 'Modo manual: automações pausadas fora da janela crítica';
+    }
+  }
+  if (operationalMode !== 'critical' && liveMode) {
+    liveMode = false;
+    localStorage.setItem('xdeck_live_mode', '0');
+  }
+  updateLiveButton();
 }
 
 // ── Handlers ──────────────────────────────────────────────
@@ -1551,7 +1589,8 @@ function clearBadge(col) {
 ensureDefaultTemplates();
 buildGrid();
 renderQueue();
-updateLiveButton();
+refreshOperationalMode();
+setInterval(refreshOperationalMode, 60 * 1000);
 connect();
 </script>
 </body>

@@ -10,6 +10,7 @@ from typing import Optional
 from aiohttp import web
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from email_alerts import get_scheduler
+from operational_mode import get_operational_mode, is_critical_window_now
 from openai_service import (
     OpenAIConfigError,
     OpenAIEmptyResponseError,
@@ -443,6 +444,14 @@ class XDeckApp:
         result = scheduler.send_test_email(data if isinstance(data, dict) else {})
         return web.json_response(result, status=200 if result.get("ok") else 400)
 
+    async def operational_mode_handler(self, request):
+        mode = get_operational_mode()
+        return web.json_response({
+            "mode": mode,
+            "critical_window": mode == "critical",
+            "timezone": "America/Sao_Paulo",
+        })
+
     async def column_summary_handler(self, request):
         try:
             data = await request.json()
@@ -568,14 +577,15 @@ class XDeckApp:
                     log.info("Subscriptions mudaram; interrompendo ciclo antigo")
                     break
                 await asyncio.sleep(STAGGER_SECONDS)
-            get_scheduler().dispatch_scheduled()
+            if is_critical_window_now():
+                get_scheduler().dispatch_scheduled()
             if not self._refresh_again:
                 break
 
     async def _refresh_loop(self):
         while True:
             await asyncio.sleep(REFRESH_INTERVAL)
-            if self.subscriptions:
+            if self.subscriptions and is_critical_window_now():
                 log.info("⏰ Auto-refresh")
                 self.schedule_refresh_all()
 
@@ -603,6 +613,7 @@ def create_app():
     app.router.add_post("/api/alerts/config", deck.alert_config_handler)
     app.router.add_post("/api/alerts/preview", deck.alert_preview_handler)
     app.router.add_post("/api/alerts/test-email", deck.alert_test_email_handler)
+    app.router.add_get("/api/operational-mode", deck.operational_mode_handler)
     app.router.add_post("/api/ai/column-summary", deck.column_summary_handler)
     app.on_startup.append(deck.startup)
     app.on_shutdown.append(deck.shutdown)

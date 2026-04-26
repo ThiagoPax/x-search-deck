@@ -67,6 +67,9 @@ Opcionais de operação:
 | `MAX_SCROLLS` | `12` | Número máximo de rolagens por coleta |
 | `SCROLL_WAIT` | `1.1` | Pausa em segundos entre rolagens da busca |
 | `PAGE_WAIT` | `7` | Tempo de espera após abrir a busca |
+| `OPERATIONAL_TIMEZONE` | `America/Sao_Paulo` | Timezone usada para decidir janela crítica |
+| `CRITICAL_WEEKDAYS_WINDOW` | `17:30-19:00` | Janela crítica de segunda a sexta (`HH:MM-HH:MM`) |
+| `CRITICAL_SUNDAY_WINDOW` | `20:30-23:00` | Janela crítica de domingo (`HH:MM-HH:MM`) |
 | `DATA_DIR` | `.data` | Diretório de persistência local |
 | `ALERT_CONFIG_PATH` | `.data/alert_config.json` | Arquivo de configuração dos alertas |
 | `ALERT_STATE_PATH` | `.data/alert_state.json` | Estado leve de alertas já enviados |
@@ -123,6 +126,9 @@ Sem `OPENAI_API_KEY`, a aplicação continua funcionando; apenas o resumo IA ret
 - Use `Limpar` em uma coluna para apagar os resultados exibidos sem apagar query ou filtros. A coluna segue monitorando e passa a mostrar apenas tweets novos em relação ao baseline limpo.
 - Use `Histórico de queries...` para reaplicar buscas recentes. O histórico é leve, global ao navegador, deduplicado e separado dos templates salvos.
 - O botão `Ao vivo` mantém as colunas inscritas no auto-refresh do backend. Ao pausar, as subscriptions são removidas até uma nova busca.
+- O topo exibe o modo operacional atual:
+  - `Modo plantão ativo`: automações liberadas.
+  - `Modo manual: automações pausadas fora da janela crítica`: sem loops automáticos.
 - O badge azul na coluna mostra quantos tweets novos chegaram desde o último refresh visualizado.
 - O texto do tweet é exibido completo, sem truncamento visual.
 - Termos relevantes da query são destacados no texto quando aparecem no tweet.
@@ -187,6 +193,27 @@ Esta hotfix restaurou recursos previstos/entregues na Fase 2 que haviam regredid
 Limitações de mídia inline: o deck não baixa mídia diretamente pela API do X. Ele apenas reaproveita URLs de imagens/thumbs que o X renderiza no HTML coletado pelo Playwright. Tweets com vídeo sem thumbnail disponível, cards externos ou mídia bloqueada pela sessão podem aparecer sem mídia.
 
 Observação sobre modo ao vivo: o modo ao vivo depende de WebSocket conectado, cookies válidos do X e ao menos uma coluna com query. Pausar o modo ao vivo limpa as subscriptions do backend para evitar coletas sobrepostas.
+
+## Modo plantão (janela crítica)
+
+O app não opera mais como monitoramento 24/7. Ele adota um modo operacional central com timezone fixa `America/Sao_Paulo`.
+
+Janela crítica padrão:
+
+- segunda a sexta: `17:30-19:00`;
+- domingo: `20:30-23:00`.
+
+Comportamento:
+
+- dentro da janela crítica:
+  - auto-refresh global roda normalmente;
+  - modo ao vivo fica habilitado;
+  - alertas automáticos (digest/spike/silêncio/final) podem disparar.
+- fora da janela crítica:
+  - auto-refresh global fica pausado;
+  - modo ao vivo fica pausado;
+  - alertas automáticos não disparam;
+  - continuam funcionando ações manuais como refresh por clique, preview manual e teste manual de e-mail.
 
 ### Detector de viralização nascente
 
