@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 import pytz
+from operational_mode import is_critical_window_now
 
 log = logging.getLogger(__name__)
 
@@ -620,9 +621,12 @@ class AlertScheduler:
                 self._tweet_first_seen[url] = now
 
         self._record_window_tweets(col_id, col_label, tweets, now)
-        self._send_spikes(col_label, tweets, recipients, now)
+        if is_critical_window_now(now):
+            self._send_spikes(col_label, tweets, recipients, now)
 
     def dispatch_scheduled(self) -> bool:
+        if not is_critical_window_now():
+            return False
         if not self.config.get("enabled", True):
             return False
         recipients = self.config.get("recipients") or []
