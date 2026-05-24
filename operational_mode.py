@@ -10,21 +10,48 @@ from typing import Optional
 import pytz
 
 OPERATIONAL_TIMEZONE = os.environ.get("OPERATIONAL_TIMEZONE", "America/Sao_Paulo").strip() or "America/Sao_Paulo"
-CRITICAL_WEEKDAYS_WINDOW = os.environ.get("CRITICAL_WEEKDAYS_WINDOW", "17:30-19:00").strip() or "17:30-19:00"
-CRITICAL_SUNDAY_WINDOW = os.environ.get("CRITICAL_SUNDAY_WINDOW", "20:30-23:00").strip() or "20:30-23:00"
+CRITICAL_WEEKDAY_WINDOWS = os.environ.get(
+    "CRITICAL_WEEKDAY_WINDOWS",
+    "12:00-12:05,15:00-15:05,17:30-19:00",
+).strip()
+CRITICAL_SUNDAY_WINDOWS = os.environ.get(
+    "CRITICAL_SUNDAY_WINDOWS",
+    "12:00-12:05,15:00-15:05,20:30-23:00",
+).strip()
+CRITICAL_SATURDAY_WINDOWS = os.environ.get("CRITICAL_SATURDAY_WINDOWS", "").strip()
 
 
-def _parse_window(raw: str, fallback: str) -> tuple[dtime, dtime]:
-    value = (raw or "").strip() or fallback
+def _parse_hhmm(value: str) -> Optional[dtime]:
     try:
-        start_raw, end_raw = [x.strip() for x in value.split("-", 1)]
-        sh, sm = [int(x) for x in start_raw.split(":", 1)]
-        eh, em = [int(x) for x in end_raw.split(":", 1)]
-        return dtime(sh, sm), dtime(eh, em)
+        hh_raw, mm_raw = [x.strip() for x in value.split(":", 1)]
+        hh, mm = int(hh_raw), int(mm_raw)
+        if 0 <= hh <= 23 and 0 <= mm <= 59:
+            return dtime(hh, mm)
     except Exception:
-        sh, sm = [int(x) for x in fallback.split("-", 1)[0].split(":", 1)]
-        eh, em = [int(x) for x in fallback.split("-", 1)[1].split(":", 1)]
-        return dtime(sh, sm), dtime(eh, em)
+        return None
+    return None
+
+
+def _parse_windows(raw: str, fallback: str) -> list[tuple[dtime, dtime]]:
+    source = raw if raw is not None else fallback
+    source = source.strip()
+    if not source:
+        return []
+    windows: list[tuple[dtime, dtime]] = []
+    for token in source.split(","):
+        piece = token.strip()
+        if not piece or "-" not in piece:
+            continue
+        start_raw, end_raw = [x.strip() for x in piece.split("-", 1)]
+        start = _parse_hhmm(start_raw)
+        end = _parse_hhmm(end_raw)
+        if start and end:
+            windows.append((start, end))
+    if windows:
+        return windows
+    if source == fallback:
+        return []
+    return _parse_windows(fallback, fallback)
 
 
 def now_in_operational_tz(now: Optional[datetime] = None) -> datetime:
@@ -38,17 +65,18 @@ def now_in_operational_tz(now: Optional[datetime] = None) -> datetime:
 
 def is_critical_window_now(now: Optional[datetime] = None) -> bool:
     current = now_in_operational_tz(now)
-    weekday = current.weekday()
+    weekday = current.weekday()  # Mon=0 ... Sun=6
     clock = current.time()
-    weekday_start, weekday_end = _parse_window(CRITICAL_WEEKDAYS_WINDOW, "17:30-19:00")
-    sunday_start, sunday_end = _parse_window(CRITICAL_SUNDAY_WINDOW, "20:30-23:00")
+
     if weekday <= 4:
-        return weekday_start <= clock <= weekday_end
-    if weekday == 6:
-        return sunday_start <= clock <= sunday_end
-    return False
+        windows = _parse_windows(CRITICAL_WEEKDAY_WINDOWS, "12:00-12:05,15:00-15:05,17:30-19:00")
+    elif weekday == 5:
+        windows = _parse_windows(CRITICAL_SATURDAY_WINDOWS, "")
+    else:
+        windows = _parse_windows(CRITICAL_SUNDAY_WINDOWS, "12:00-12:05,15:00-15:05,20:30-23:00")
+
+    return any(start <= clock <= end for start, end in windows)
 
 
 def get_operational_mode(now: Optional[datetime] = None) -> str:
     return "critical" if is_critical_window_now(now) else "manual_only"
-
