@@ -58,11 +58,43 @@ DEFAULT_CONFIG = {
     "deck_url": os.environ.get("DECK_URL", ""),
     "windows": [
         {
+            "id": "weekday-midday-1",
+            "label": "Plantão diário 12:00",
+            "days": [0, 1, 2, 3, 4],
+            "start": "12:00",
+            "end": "12:05",
+            "enabled": True,
+        },
+        {
+            "id": "weekday-midday-2",
+            "label": "Plantão diário 15:00",
+            "days": [0, 1, 2, 3, 4],
+            "start": "15:00",
+            "end": "15:05",
+            "enabled": True,
+        },
+        {
             "id": "gazeta-esportiva",
             "label": "Gazeta Esportiva",
             "days": [0, 1, 2, 3, 4],
             "start": "17:30",
             "end": "19:00",
+            "enabled": True,
+        },
+        {
+            "id": "sunday-midday-1",
+            "label": "Plantão domingo 12:00",
+            "days": [6],
+            "start": "12:00",
+            "end": "12:05",
+            "enabled": True,
+        },
+        {
+            "id": "sunday-midday-2",
+            "label": "Plantão domingo 15:00",
+            "days": [6],
+            "start": "15:00",
+            "end": "15:05",
             "enabled": True,
         },
         {
