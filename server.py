@@ -1,5 +1,5 @@
 """
-X Search Deck — Railway/Render com Playwright aba única
+X Search Deck — Railway/Render com Playwright efêmero
 """
 from __future__ import annotations
 import asyncio, json, logging, os, re, urllib.parse
@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from aiohttp import web
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
 from email_alerts import get_scheduler
 from operational_mode import get_operational_mode, is_critical_window_now
 from openai_service import (
@@ -33,6 +33,24 @@ MAX_SCROLLS      = int(os.environ.get("MAX_SCROLLS", 12))
 SCROLL_WAIT      = float(os.environ.get("SCROLL_WAIT", 1.1))
 PAGE_WAIT        = float(os.environ.get("PAGE_WAIT", 7))
 X_COOKIES_JSON   = os.environ.get("X_COOKIES_JSON", "")
+
+
+def current_rss_mb() -> float:
+    try:
+        with open("/proc/self/status", "r", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("VmRSS:"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return int(parts[1]) / 1024
+    except Exception:
+        pass
+    return 0.0
+
+
+def format_rss() -> str:
+    rss = current_rss_mb()
+    return f"{rss:.1f} MB" if rss else "indisponivel"
 
 LAUNCH_ARGS = [
     "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
@@ -288,28 +306,17 @@ async def _one(art) -> dict:
     return t
 
 
-# ── Browser — aba única ───────────────────────────────────
+# ── Browser — efêmero por busca ────────────────────────────
 
 class BrowserManager:
     def __init__(self):
-        self._pw   = None
-        self.browser: Optional[Browser]        = None
-        self.context: Optional[BrowserContext] = None
-        self.page:    Optional[Page]           = None
         self._lock = asyncio.Lock()
 
-    async def _launch(self):
-        if self._pw is None:
-            self._pw = await async_playwright().start()
-        try:
-            if self.browser and self.browser.is_connected():
-                await self.browser.close()
-        except Exception:
-            pass
-        self.page = None
-
-        self.browser = await self._pw.chromium.launch(headless=True, args=LAUNCH_ARGS)
-        self.context = await self.browser.new_context(
+    async def _new_page(self, pw: Playwright) -> tuple[Browser, BrowserContext, Page]:
+        log.info(f"🧠 RSS antes de abrir Chromium: {format_rss()}")
+        browser = await pw.chromium.launch(headless=True, args=LAUNCH_ARGS)
+        log.info(f"🟢 Chromium aberto — RSS: {format_rss()}")
+        context = await browser.new_context(
             viewport={"width": 1024, "height": 768},
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -318,56 +325,74 @@ class BrowserManager:
             ),
             locale="pt-BR",
         )
+        log.info(f"🟢 Contexto Playwright aberto — RSS: {format_rss()}")
         if X_COOKIES_JSON:
             try:
-                await self.context.add_cookies(normalize_cookies(json.loads(X_COOKIES_JSON)))
-                log.info("✅ Cookies injetados")
+                await context.add_cookies(normalize_cookies(json.loads(X_COOKIES_JSON)))
+                log.info("✅ Cookies injetados no contexto efêmero")
             except Exception as e:
                 log.error(f"❌ Cookies: {e}")
 
-        self.page = await self.context.new_page()
-        await self.page.route(
+        page = await context.new_page()
+        log.info(f"🟢 Página Playwright aberta — RSS: {format_rss()}")
+        await page.route(
             "**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3}",
             lambda r: r.abort()
         )
-        await self.page.route("**/ads/**",       lambda r: r.abort())
-        await self.page.route("**/analytics/**", lambda r: r.abort())
+        await page.route("**/ads/**",       lambda r: r.abort())
+        await page.route("**/analytics/**", lambda r: r.abort())
+        return browser, context, page
+
+    async def _close(self, page: Optional[Page], context: Optional[BrowserContext], browser: Optional[Browser]):
+        if page:
+            try:
+                await page.close()
+                log.info(f"🔴 Página Playwright fechada — RSS: {format_rss()}")
+            except Exception as e:
+                log.warning(f"Falha ao fechar página Playwright: {e}")
+        if context:
+            try:
+                await context.close()
+                log.info(f"🔴 Contexto Playwright fechado — RSS: {format_rss()}")
+            except Exception as e:
+                log.warning(f"Falha ao fechar contexto Playwright: {e}")
+        if browser:
+            try:
+                await browser.close()
+                log.info(f"🔴 Chromium fechado — RSS: {format_rss()}")
+            except Exception as e:
+                log.warning(f"Falha ao fechar Chromium: {e}")
 
     async def start(self):
-        await self._launch()
-        try:
-            await self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=25000)
-            await asyncio.sleep(3)
-            if "login" in self.page.url or "i/flow" in self.page.url:
-                log.error("❌ Não autenticado")
-            else:
-                log.info("✅ Autenticado no X")
-        except Exception as e:
-            log.warning(f"Auth check: {e}")
-
-    async def _ok(self):
-        try:
-            return (self.browser and self.browser.is_connected()
-                    and self.page and not self.page.is_closed())
-        except Exception:
-            return False
+        log.info("Playwright em modo efêmero: Chromium só abre durante buscas")
 
     async def fetch(self, url: str) -> list[dict]:
         async with self._lock:
-            if not await self._ok():
-                log.warning("⚠️  Browser caiu — relançando...")
-                await self._launch()
-            await self.page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            await asyncio.sleep(PAGE_WAIT)
-            return await extract_tweets(self.page)
+            browser: Optional[Browser] = None
+            context: Optional[BrowserContext] = None
+            page: Optional[Page] = None
+            pw = None
+            try:
+                log.info(f"🧠 RSS antes da busca Playwright: {format_rss()}")
+                pw = await async_playwright().start()
+                browser, context, page = await self._new_page(pw)
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                if "login" in page.url or "i/flow" in page.url:
+                    log.error("❌ Não autenticado no X")
+                await asyncio.sleep(PAGE_WAIT)
+                return await extract_tweets(page)
+            finally:
+                await self._close(page, context, browser)
+                if pw:
+                    try:
+                        await pw.stop()
+                        log.info(f"🔴 Playwright parado — RSS: {format_rss()}")
+                    except Exception as e:
+                        log.warning(f"Falha ao parar Playwright: {e}")
+                log.info(f"🧠 RSS depois da busca Playwright: {format_rss()}")
 
     async def stop(self):
-        try:
-            if self.browser: await self.browser.close()
-        except Exception: pass
-        try:
-            if self._pw: await self._pw.stop()
-        except Exception: pass
+        log.info("Shutdown: nenhum browser persistente para fechar")
 
 
 # ── App ───────────────────────────────────────────────────
@@ -507,8 +532,14 @@ class XDeckApp:
                     }
                     self._generation += 1
                     log.info(f"Subscription: {len(self.subscriptions)} colunas")
+                    source = data.get("source") or "manual"
                     if data.get("refresh", True):
-                        self.schedule_refresh_all()
+                        if source in {"live", "auto"} and not is_critical_window_now():
+                            log.info("Auto-refresh WebSocket ignorado fora da janela crítica")
+                        else:
+                            if source == "manual" and not is_critical_window_now():
+                                log.info("Refresh manual solicitado fora da janela crítica")
+                            self.schedule_refresh_all()
                 elif data.get("type") == "refresh_one":
                     col_id = data.get("column")
                     if col_id is not None:
@@ -524,11 +555,12 @@ class XDeckApp:
         cfg = cfg or self.subscriptions.get(col_id)
         if not cfg or not cfg.get("query", "").strip():
             return
+        label = self._col_label(col_id)
         await self.broadcast({"type":"status","column":col_id,"status":"loading"})
+        log.info(f"{label}: RSS antes da busca: {format_rss()}")
         try:
             filtered_query = apply_column_filters(cfg)
             url = build_url(filtered_query, cfg.get("sort","live"))
-            label = self._col_label(col_id)
             log.info(f"{label}: coletando...")
             tweets = await self.bm.fetch(url)
             current_cfg = self.subscriptions.get(col_id)
@@ -555,9 +587,11 @@ class XDeckApp:
             col_label = cfg.get("name") or label
             get_scheduler().ingest(col_id, col_label, tweets)
         except Exception as e:
-            log.error(f"{self._col_label(col_id)}: ❌ {e}")
+            log.error(f"{label}: ❌ {e}")
             await self.broadcast({"type":"status","column":col_id,
                 "status":"error","message":str(e)[:120]})
+        finally:
+            log.info(f"{label}: RSS depois da busca: {format_rss()}")
 
     def schedule_refresh_all(self):
         if self._refresh_task and not self._refresh_task.done():
