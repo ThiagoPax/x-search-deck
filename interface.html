@@ -754,7 +754,7 @@ function switchPage(pageId) {
   deckState.activePageId = pageId;
   saveDeckState();
   buildGrid();
-  if (liveMode) subscribeAll();
+  if (liveMode) subscribeAll({ source:'live' });
 }
 
 function updateGridStatus() {
@@ -809,7 +809,7 @@ function connect() {
     setDot('on', 'conectado');
     document.getElementById('overlay').classList.remove('show');
     updateLiveButton();
-    if (liveMode && operationalMode === 'critical') subscribeAll();
+    if (liveMode && operationalMode === 'critical') subscribeAll({ source:'live' });
   };
   ws.onmessage = e => {
     let d; try { d = JSON.parse(e.data); } catch { return; }
@@ -868,7 +868,12 @@ function subscribeAll(options = {}) {
       muted: document.getElementById(colDom('muted', colId))?.value || '',
     });
   });
-  ws.send(JSON.stringify({ type:'subscribe', columns:cols, refresh: options.refresh !== false }));
+  ws.send(JSON.stringify({
+    type:'subscribe',
+    columns:cols,
+    refresh: options.refresh !== false,
+    source: options.source || 'manual'
+  }));
   if (options.activateLive !== false) {
     liveMode = true;
     localStorage.setItem('xdeck_live_mode', '1');
@@ -893,7 +898,7 @@ function toggleLiveMode() {
   liveMode = !liveMode;
   localStorage.setItem('xdeck_live_mode', liveMode ? '1' : '0');
   updateLiveButton();
-  if (liveMode) subscribeAll();
+  if (liveMode) subscribeAll({ source:'live' });
   else if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type:'subscribe', columns:[], refresh:false }));
 }
 
