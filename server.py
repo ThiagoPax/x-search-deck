@@ -27,6 +27,7 @@ log = logging.getLogger(__name__)
 
 PORT             = int(os.environ.get("PORT", 8765))
 REFRESH_INTERVAL = int(os.environ.get("REFRESH_INTERVAL", 90))
+REFRESH_GLOBAL_TIMEOUT = int(os.environ.get("REFRESH_GLOBAL_TIMEOUT", 120))
 STAGGER_SECONDS  = int(os.environ.get("STAGGER_SECONDS", 8))
 MAX_TWEETS       = int(os.environ.get("MAX_TWEETS", 100))
 MAX_SCROLLS      = int(os.environ.get("MAX_SCROLLS", 12))
@@ -405,6 +406,7 @@ class XDeckApp:
         self.clients:       set[web.WebSocketResponse] = set()
         self._refresh_task: Optional[asyncio.Task] = None
         self._refresh_again = False
+        self._refresh_started_at: Optional[float] = None
         self._generation = 0
 
     @staticmethod
@@ -539,7 +541,7 @@ class XDeckApp:
                         else:
                             if source == "manual" and not is_critical_window_now():
                                 log.info("Refresh manual solicitado fora da janela crítica")
-                            self.schedule_refresh_all()
+                            self.schedule_refresh_all(source=source)
                 elif data.get("type") == "refresh_one":
                     col_id = data.get("column")
                     if col_id is not None:
@@ -593,35 +595,108 @@ class XDeckApp:
         finally:
             log.info(f"{label}: RSS depois da busca: {format_rss()}")
 
-    def schedule_refresh_all(self):
-        if self._refresh_task and not self._refresh_task.done():
-            self._refresh_again = True
-            log.info("Refresh global já em andamento; novo ciclo enfileirado")
-            return
-        self._refresh_task = asyncio.create_task(self.refresh_all())
+    def _refresh_age_seconds(self) -> Optional[float]:
+        if self._refresh_started_at is None:
+            return None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+        return loop.time() - self._refresh_started_at
 
-    async def refresh_all(self):
-        while True:
+    def _log_refresh_state(self, event: str, source: str, level: int = logging.INFO, **extra):
+        fields = {
+            "event": event,
+            "source": source,
+            "operational_mode": get_operational_mode(),
+            "critical_window": is_critical_window_now(),
+            "columns": len(self.subscriptions),
+            **extra,
+        }
+        log.log(level, " ".join(f"{key}={value}" for key, value in fields.items()))
+
+    def _unlock_refresh(self, source: str, task: Optional[asyncio.Task] = None):
+        current = task or asyncio.current_task()
+        should_unlock = self._refresh_task is current or (task is not None and task is self._refresh_task) or self._refresh_task is None
+        if should_unlock:
+            self._refresh_task = None
+            self._refresh_started_at = None
             self._refresh_again = False
-            generation = self._generation
-            snapshot = {col_id: cfg.copy() for col_id, cfg in self.subscriptions.items()}
-            for col_id in sorted(snapshot, key=str):
-                await self.refresh_column(col_id, snapshot[col_id], generation)
-                if generation != self._generation:
-                    log.info("Subscriptions mudaram; interrompendo ciclo antigo")
-                    break
-                await asyncio.sleep(STAGGER_SECONDS)
-            if is_critical_window_now():
-                get_scheduler().dispatch_scheduled()
-            if not self._refresh_again:
+        self._log_refresh_state("refresh_unlocked", source)
+
+    def schedule_refresh_all(self, source: str = "manual"):
+        if source in {"live", "auto"} and not is_critical_window_now():
+            self._log_refresh_state("refresh_skipped_outside_critical_window", source)
+            return
+
+        if self._refresh_task and not self._refresh_task.done():
+            age = self._refresh_age_seconds()
+            if age is not None and age > REFRESH_GLOBAL_TIMEOUT:
+                self._log_refresh_state(
+                    "refresh_timeout",
+                    source,
+                    logging.WARNING,
+                    age=f"{age:.1f}s",
+                    timeout=f"{REFRESH_GLOBAL_TIMEOUT}s",
+                )
+                self._refresh_task.cancel()
+                self._unlock_refresh(source, task=self._refresh_task)
+            else:
+                self._refresh_again = True
+                self._log_refresh_state("refresh_pending_detected", source)
+                log.info("Refresh global já em andamento; novo ciclo enfileirado")
+                return
+
+        self._refresh_started_at = asyncio.get_running_loop().time()
+        self._refresh_task = asyncio.create_task(self.refresh_all(source=source))
+
+    async def _run_refresh_cycle(self, source: str):
+        generation = self._generation
+        snapshot = {col_id: cfg.copy() for col_id, cfg in self.subscriptions.items()}
+        self._log_refresh_state("refresh_start", source, columns=len(snapshot))
+        for col_id in sorted(snapshot, key=str):
+            await self.refresh_column(col_id, snapshot[col_id], generation)
+            if generation != self._generation:
+                log.info("Subscriptions mudaram; interrompendo ciclo antigo")
                 break
+            await asyncio.sleep(STAGGER_SECONDS)
+        if is_critical_window_now():
+            get_scheduler().dispatch_scheduled()
+        self._log_refresh_state("refresh_end", source, columns=len(snapshot))
+
+    async def _run_refresh_cycle_with_timeout(self, source: str):
+        try:
+            await asyncio.wait_for(self._run_refresh_cycle(source), timeout=REFRESH_GLOBAL_TIMEOUT)
+        except asyncio.TimeoutError:
+            self._log_refresh_state(
+                "refresh_timeout",
+                source,
+                logging.WARNING,
+                timeout=f"{REFRESH_GLOBAL_TIMEOUT}s",
+            )
+        except asyncio.CancelledError:
+            self._log_refresh_state("refresh_error", source, logging.WARNING, error="cancelled")
+            raise
+        except Exception as e:
+            self._log_refresh_state("refresh_error", source, logging.ERROR, error=repr(e))
+
+    async def refresh_all(self, source: str = "manual"):
+        try:
+            self._refresh_again = False
+            await self._run_refresh_cycle_with_timeout(source)
+            if self._refresh_again:
+                self._log_refresh_state("refresh_pending_executed", source)
+                self._refresh_again = False
+                await self._run_refresh_cycle_with_timeout(source)
+        finally:
+            self._unlock_refresh(source)
 
     async def _refresh_loop(self):
         while True:
             await asyncio.sleep(REFRESH_INTERVAL)
             if self.subscriptions and is_critical_window_now():
                 log.info("⏰ Auto-refresh")
-                self.schedule_refresh_all()
+                self.schedule_refresh_all(source="auto")
 
     async def broadcast(self, message: dict):
         data = json.dumps(message, ensure_ascii=False)
