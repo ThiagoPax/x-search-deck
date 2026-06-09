@@ -373,6 +373,10 @@ let alertConfig = null;
 let editorialQueue = loadQueue();
 let liveMode = localStorage.getItem('xdeck_live_mode') !== '0';
 let operationalMode = 'manual_only';
+const OPERATIONAL_MODE_POLL_CRITICAL_MS = 60 * 1000;
+const OPERATIONAL_MODE_POLL_IDLE_MS = 10 * 60 * 1000;
+const OPERATIONAL_MODE_POLL_HIDDEN_MS = 30 * 60 * 1000;
+let operationalModeTimer = null;
 
 // ── Grid ──────────────────────────────────────────────────
 function newId(prefix) {
@@ -845,6 +849,7 @@ function setDot(cls, label) {
 
 // ── Subscriptions ─────────────────────────────────────────
 function subscribeAll(options = {}) {
+  if (options.refresh !== false) refreshOperationalMode({ force:true });
   if (!ws || ws.readyState !== WebSocket.OPEN) { connect(); return; }
   const cols = [];
   activeColumns().forEach((col, i) => {
@@ -883,6 +888,7 @@ function subscribeAll(options = {}) {
 }
 
 function refreshOne(idx) {
+  refreshOperationalMode({ force:true });
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   subscribeAll({ refresh:false });
   ws.send(JSON.stringify({ type:'refresh_one', column:idx }));
@@ -911,7 +917,20 @@ function updateLiveButton() {
   btn.textContent = !allowed ? 'Ao vivo pausado (plantão)' : (liveMode ? 'Ao vivo ligado' : 'Ao vivo pausado');
 }
 
-async function refreshOperationalMode() {
+function operationalModePollInterval() {
+  if (document.hidden) return OPERATIONAL_MODE_POLL_HIDDEN_MS;
+  return operationalMode === 'critical' ? OPERATIONAL_MODE_POLL_CRITICAL_MS : OPERATIONAL_MODE_POLL_IDLE_MS;
+}
+
+function scheduleOperationalModePoll() {
+  clearTimeout(operationalModeTimer);
+  const interval = operationalModePollInterval();
+  console.log('operational_mode_poll_interval', interval);
+  operationalModeTimer = setTimeout(() => refreshOperationalMode(), interval);
+}
+
+async function refreshOperationalMode(options = {}) {
+  clearTimeout(operationalModeTimer);
   try {
     const r = await fetch('/api/operational-mode', { cache:'no-store' });
     const data = await r.json();
@@ -934,7 +953,10 @@ async function refreshOperationalMode() {
     localStorage.setItem('xdeck_live_mode', '0');
   }
   updateLiveButton();
+  if (options.reschedule !== false) scheduleOperationalModePoll();
 }
+
+document.addEventListener('visibilitychange', () => scheduleOperationalModePoll());
 
 // ── Handlers ──────────────────────────────────────────────
 function handleStatus({ column:col, status, message }) {
@@ -1594,8 +1616,7 @@ function clearBadge(col) {
 ensureDefaultTemplates();
 buildGrid();
 renderQueue();
-refreshOperationalMode();
-setInterval(refreshOperationalMode, 60 * 1000);
+refreshOperationalMode({ force:true });
 connect();
 </script>
 </body>

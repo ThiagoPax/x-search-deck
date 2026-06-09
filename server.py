@@ -2,8 +2,8 @@
 X Search Deck — Railway/Render com Playwright efêmero
 """
 from __future__ import annotations
-import asyncio, json, logging, os, re, urllib.parse
-from datetime import datetime
+import asyncio, gc, json, logging, os, re, urllib.parse
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -52,6 +52,58 @@ def current_rss_mb() -> float:
 def format_rss() -> str:
     rss = current_rss_mb()
     return f"{rss:.1f} MB" if rss else "indisponivel"
+
+
+def _process_rss_mb(pid: str) -> float:
+    try:
+        with open(f"/proc/{pid}/status", "r", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("VmRSS:"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return round(int(parts[1]) / 1024, 1)
+    except Exception:
+        pass
+    return 0.0
+
+
+def chromium_process_summary() -> dict:
+    processes = []
+    chromium_count = 0
+    chrome_count = 0
+    proc_root = Path("/proc")
+    try:
+        entries = list(proc_root.iterdir())
+    except Exception:
+        entries = []
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            name = (entry / "comm").read_text(encoding="utf-8").strip()[:80]
+        except Exception:
+            continue
+        lower_name = name.lower()
+        is_chromium = "chromium" in lower_name
+        is_chrome = "chrome" in lower_name
+        if not (is_chromium or is_chrome):
+            continue
+        if is_chromium:
+            chromium_count += 1
+        if is_chrome:
+            chrome_count += 1
+        processes.append({
+            "pid": int(entry.name),
+            "name": name,
+            "rss_mb": _process_rss_mb(entry.name),
+        })
+    processes.sort(key=lambda item: item.get("rss_mb", 0), reverse=True)
+    return {
+        "chromium_process_count": chromium_count,
+        "chrome_process_count": chrome_count,
+        "browser_processes": processes[:20],
+    }
+
 
 LAUNCH_ARGS = [
     "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
@@ -374,7 +426,7 @@ class BrowserManager:
             page: Optional[Page] = None
             pw = None
             try:
-                log.info(f"🧠 RSS antes da busca Playwright: {format_rss()}")
+                log.info(f"rss_before_fetch rss_mb={current_rss_mb():.1f}")
                 pw = await async_playwright().start()
                 browser, context, page = await self._new_page(pw)
                 await page.goto(url, wait_until="domcontentloaded", timeout=30000)
@@ -383,6 +435,7 @@ class BrowserManager:
                 await asyncio.sleep(PAGE_WAIT)
                 return await extract_tweets(page)
             finally:
+                rss_before_cleanup = current_rss_mb()
                 await self._close(page, context, browser)
                 if pw:
                     try:
@@ -390,7 +443,17 @@ class BrowserManager:
                         log.info(f"🔴 Playwright parado — RSS: {format_rss()}")
                     except Exception as e:
                         log.warning(f"Falha ao parar Playwright: {e}")
-                log.info(f"🧠 RSS depois da busca Playwright: {format_rss()}")
+                page = None
+                context = None
+                browser = None
+                pw = None
+                log.info(f"rss_after_fetch rss_mb={current_rss_mb():.1f}")
+                gc.collect()
+                log.info(
+                    "post_fetch_cleanup rss_before_cleanup=%.1f rss_after_gc=%.1f",
+                    rss_before_cleanup,
+                    current_rss_mb(),
+                )
 
     async def stop(self):
         log.info("Shutdown: nenhum browser persistente para fechar")
@@ -478,6 +541,44 @@ class XDeckApp:
             "critical_window": mode == "critical",
             "timezone": "America/Sao_Paulo",
         })
+
+    async def runtime_debug_handler(self, request):
+        browser_summary = chromium_process_summary()
+        try:
+            tasks_count = len(asyncio.all_tasks())
+        except Exception:
+            tasks_count = 0
+        mode = get_operational_mode()
+        payload = {
+            "rss_mb": round(current_rss_mb(), 1),
+            "asyncio_tasks_count": tasks_count,
+            "refresh_in_progress": bool(self._refresh_task and not self._refresh_task.done()),
+            "refresh_pending": bool(self._refresh_again),
+            "operational_mode": mode,
+            "critical_window": is_critical_window_now(),
+            "subscriptions_count": len(self.subscriptions),
+            "clients_count": len(self.clients),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **browser_summary,
+        }
+        log.info(
+            "runtime_memory_snapshot rss_mb=%.1f tasks=%s refresh_in_progress=%s "
+            "refresh_pending=%s operational_mode=%s critical_window=%s subscriptions=%s clients=%s",
+            payload["rss_mb"],
+            payload["asyncio_tasks_count"],
+            payload["refresh_in_progress"],
+            payload["refresh_pending"],
+            payload["operational_mode"],
+            payload["critical_window"],
+            payload["subscriptions_count"],
+            payload["clients_count"],
+        )
+        log.info(
+            "chromium_process_count chromium=%s chrome=%s",
+            payload["chromium_process_count"],
+            payload["chrome_process_count"],
+        )
+        return web.json_response(payload)
 
     async def column_summary_handler(self, request):
         try:
@@ -580,7 +681,7 @@ class XDeckApp:
                     "status":"error","message":"X não renderizou resultados nesta coleta; mantendo últimos tweets."})
                 log.warning(f"{label}: 0 tweets transitório; mantendo {len(self.results[col_id])}")
                 return
-            self.results[col_id] = tweets
+            self.results[col_id] = tweets[:MAX_TWEETS]
             ts = datetime.now().strftime("%H:%M:%S")
             await self.broadcast({"type":"results","column":col_id,
                 "tweets":tweets,"updated":ts,"count":len(tweets)})
@@ -723,6 +824,7 @@ def create_app():
     app.router.add_post("/api/alerts/preview", deck.alert_preview_handler)
     app.router.add_post("/api/alerts/test-email", deck.alert_test_email_handler)
     app.router.add_get("/api/operational-mode", deck.operational_mode_handler)
+    app.router.add_get("/api/debug/runtime", deck.runtime_debug_handler)
     app.router.add_post("/api/ai/column-summary", deck.column_summary_handler)
     app.on_startup.append(deck.startup)
     app.on_shutdown.append(deck.shutdown)
