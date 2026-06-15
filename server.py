@@ -33,6 +33,7 @@ MAX_TWEETS       = int(os.environ.get("MAX_TWEETS", 100))
 MAX_SCROLLS      = int(os.environ.get("MAX_SCROLLS", 12))
 SCROLL_WAIT      = float(os.environ.get("SCROLL_WAIT", 1.1))
 PAGE_WAIT        = float(os.environ.get("PAGE_WAIT", 7))
+PLAYWRIGHT_LAUNCH_TIMEOUT = int(os.environ.get("PLAYWRIGHT_LAUNCH_TIMEOUT", 30000))
 X_COOKIES_JSON   = os.environ.get("X_COOKIES_JSON", "")
 
 
@@ -107,7 +108,7 @@ def chromium_process_summary() -> dict:
 
 LAUNCH_ARGS = [
     "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
-    "--disable-gpu", "--disable-software-rasterizer", "--disable-extensions",
+    "--disable-gpu", "--no-zygote", "--disable-software-rasterizer", "--disable-extensions",
     "--disable-background-networking", "--disable-default-apps",
     "--disable-sync", "--mute-audio", "--no-first-run",
     "--safebrowsing-disable-auto-update",
@@ -366,35 +367,57 @@ class BrowserManager:
         self._lock = asyncio.Lock()
 
     async def _new_page(self, pw: Playwright) -> tuple[Browser, BrowserContext, Page]:
-        log.info(f"🧠 RSS antes de abrir Chromium: {format_rss()}")
-        browser = await pw.chromium.launch(headless=True, args=LAUNCH_ARGS)
-        log.info(f"🟢 Chromium aberto — RSS: {format_rss()}")
-        context = await browser.new_context(
-            viewport={"width": 1024, "height": 768},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            locale="pt-BR",
-        )
-        log.info(f"🟢 Contexto Playwright aberto — RSS: {format_rss()}")
-        if X_COOKIES_JSON:
-            try:
-                await context.add_cookies(normalize_cookies(json.loads(X_COOKIES_JSON)))
-                log.info("✅ Cookies injetados no contexto efêmero")
-            except Exception as e:
-                log.error(f"❌ Cookies: {e}")
+        browser: Optional[Browser] = None
+        context: Optional[BrowserContext] = None
+        page: Optional[Page] = None
+        try:
+            log.info(
+                "playwright_launch_start rss_mb=%.1f timeout_ms=%s args=%s",
+                current_rss_mb(),
+                PLAYWRIGHT_LAUNCH_TIMEOUT,
+                LAUNCH_ARGS,
+            )
+            browser = await pw.chromium.launch(
+                headless=True,
+                args=LAUNCH_ARGS,
+                timeout=PLAYWRIGHT_LAUNCH_TIMEOUT,
+            )
+            log.info("playwright_launch_success rss_mb=%.1f", current_rss_mb())
+            context = await browser.new_context(
+                viewport={"width": 1024, "height": 768},
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                locale="pt-BR",
+            )
+            log.info(f"🟢 Contexto Playwright aberto — RSS: {format_rss()}")
+            if X_COOKIES_JSON:
+                try:
+                    await context.add_cookies(normalize_cookies(json.loads(X_COOKIES_JSON)))
+                    log.info("✅ Cookies injetados no contexto efêmero")
+                except Exception as e:
+                    log.error(f"❌ Cookies: {e}")
 
-        page = await context.new_page()
-        log.info(f"🟢 Página Playwright aberta — RSS: {format_rss()}")
-        await page.route(
-            "**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3}",
-            lambda r: r.abort()
-        )
-        await page.route("**/ads/**",       lambda r: r.abort())
-        await page.route("**/analytics/**", lambda r: r.abort())
-        return browser, context, page
+            page = await context.new_page()
+            log.info(f"🟢 Página Playwright aberta — RSS: {format_rss()}")
+            await page.route(
+                "**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3}",
+                lambda r: r.abort()
+            )
+            await page.route("**/ads/**",       lambda r: r.abort())
+            await page.route("**/analytics/**", lambda r: r.abort())
+            return browser, context, page
+        except Exception as e:
+            log.error(
+                "playwright_launch_error type=%s message=%s rss_mb=%.1f",
+                type(e).__name__,
+                str(e),
+                current_rss_mb(),
+            )
+            await self._close(page, context, browser)
+            raise RuntimeError("Falha ao iniciar navegador temporário para esta coleta") from e
 
     async def _close(self, page: Optional[Page], context: Optional[BrowserContext], browser: Optional[Browser]):
         if page:
@@ -690,9 +713,10 @@ class XDeckApp:
             col_label = cfg.get("name") or label
             get_scheduler().ingest(col_id, col_label, tweets)
         except Exception as e:
-            log.error(f"{label}: ❌ {e}")
+            log.error(f"{label}: ❌ {type(e).__name__}: {e}")
+            message = "Não foi possível abrir o navegador para esta coleta; mantendo a coluna estável." if "navegador temporário" in str(e) else str(e)[:120]
             await self.broadcast({"type":"status","column":col_id,
-                "status":"error","message":str(e)[:120]})
+                "status":"error","message":message})
         finally:
             log.info(f"{label}: RSS depois da busca: {format_rss()}")
 
