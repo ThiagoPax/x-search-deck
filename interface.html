@@ -368,7 +368,7 @@ lang:pt`},
 const DECK_STATE_KEY = 'xdeck_state_v2';
 const VISUAL_CACHE_KEY = 'xdeck_visual_results_v1';
 const QUERY_HISTORY_KEY = 'xdeck_query_history';
-let deckState = loadDeckState(), ws = null, reconnTimer = null, reconnAttempts = 0;
+let deckState = loadDeckState(), ws = null, wsConnecting = false, reconnTimer = null, reconnAttempts = 0;
 let seenUrls = {}, colResults = {}, hiddenUrls = {};
 let visualResultsCache = loadVisualResultsCache();
 let alertConfig = null;
@@ -376,9 +376,10 @@ let editorialQueue = loadQueue();
 let liveMode = localStorage.getItem('xdeck_live_mode') !== '0';
 let operationalMode = 'manual_only';
 const OPERATIONAL_MODE_POLL_CRITICAL_MS = 60 * 1000;
-const OPERATIONAL_MODE_POLL_IDLE_MS = 60 * 1000;
+const OPERATIONAL_MODE_POLL_IDLE_MS = 5 * 60 * 1000;
 const OPERATIONAL_MODE_POLL_HIDDEN_MS = 30 * 60 * 1000;
 let operationalModeTimer = null;
+let operationalModeInFlight = null;
 
 // ── Grid ──────────────────────────────────────────────────
 function newId(prefix) {
@@ -808,9 +809,21 @@ function moveColumnState(from, to) {
 // ── WebSocket ─────────────────────────────────────────────
 function connect() {
   clearTimeout(reconnTimer);
-  try { ws = new WebSocket(WS_URL); } catch { scheduleReconn(); return; }
+  reconnTimer = null;
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  if (wsConnecting) return;
+
+  wsConnecting = true;
+  if (ws) {
+    ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+    try { ws.close(); } catch {}
+    ws = null;
+  }
+
+  try { ws = new WebSocket(WS_URL); } catch { wsConnecting = false; scheduleReconn(); return; }
 
   ws.onopen = () => {
+    wsConnecting = false;
     reconnAttempts = 0;
     setDot('on', 'conectado');
     document.getElementById('overlay').classList.remove('show');
@@ -822,23 +835,43 @@ function connect() {
     if (d.type === 'results') handleResults(d);
     else if (d.type === 'status') handleStatus(d);
   };
-  ws.onclose = () => { setDot('err','desconectado'); scheduleReconn(); };
-  ws.onerror = () => ws.close();
+  ws.onclose = () => {
+    wsConnecting = false;
+    ws = null;
+    setDot('err','desconectado');
+    scheduleReconn();
+  };
+  ws.onerror = () => {
+    wsConnecting = false;
+    if (ws) ws.close();
+  };
 }
 
 function scheduleReconn() {
+  if (reconnTimer) return;
   reconnAttempts++;
-  const delay = Math.min(3000 * reconnAttempts, 20000);
+  const delay = Math.min(1000 * (2 ** Math.min(reconnAttempts - 1, 5)), 30000);
   setDot('spin', `reconectando (${reconnAttempts})...`);
   if (reconnAttempts >= 3) {
     document.getElementById('ws-url-display').textContent = WS_URL;
     document.getElementById('overlay').classList.add('show');
   }
-  reconnTimer = setTimeout(connect, delay);
+  reconnTimer = setTimeout(() => {
+    reconnTimer = null;
+    connect();
+  }, delay);
 }
 
 function retryConnect() {
+  clearTimeout(reconnTimer);
+  reconnTimer = null;
   reconnAttempts = 0;
+  wsConnecting = false;
+  if (ws) {
+    ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+    try { ws.close(); } catch {}
+    ws = null;
+  }
   document.getElementById('overlay').classList.remove('show');
   connect();
 }
@@ -933,32 +966,46 @@ function scheduleOperationalModePoll() {
 
 async function refreshOperationalMode(options = {}) {
   clearTimeout(operationalModeTimer);
-  const previousOperationalMode = operationalMode;
-  try {
-    const r = await fetch('/api/operational-mode', { cache:'no-store' });
-    const data = await r.json();
-    operationalMode = data?.mode === 'critical' ? 'critical' : 'manual_only';
-  } catch {
-    operationalMode = 'manual_only';
-  }
-  const el = document.getElementById('operational-mode');
-  if (el) {
-    if (operationalMode === 'critical') {
-      el.className = 'op-mode critical';
-      el.textContent = 'Modo plantão ativo';
-    } else {
-      el.className = 'op-mode manual';
-      el.textContent = 'Modo manual: automações pausadas fora da janela crítica';
+  operationalModeTimer = null;
+  if (operationalModeInFlight) return operationalModeInFlight;
+
+  operationalModeInFlight = (async () => {
+    const previousOperationalMode = operationalMode;
+    try {
+      const r = await fetch('/api/operational-mode', { cache:'no-store' });
+      const data = await r.json();
+      operationalMode = data?.mode === 'critical' ? 'critical' : 'manual_only';
+    } catch {
+      operationalMode = 'manual_only';
     }
+    const el = document.getElementById('operational-mode');
+    if (el) {
+      if (operationalMode === 'critical') {
+        el.className = 'op-mode critical';
+        el.textContent = 'Modo plantão ativo';
+      } else {
+        el.className = 'op-mode manual';
+        el.textContent = 'Modo manual: automações pausadas fora da janela crítica';
+      }
+    }
+    updateLiveButton();
+    if (operationalMode === 'critical' && previousOperationalMode !== 'critical' && liveMode && options.initialRefresh !== false) {
+      subscribeAll({ source:'live' });
+    }
+  })();
+
+  try {
+    await operationalModeInFlight;
+  } finally {
+    operationalModeInFlight = null;
+    if (options.reschedule !== false) scheduleOperationalModePoll();
   }
-  updateLiveButton();
-  if (operationalMode === 'critical' && previousOperationalMode !== 'critical' && liveMode && options.initialRefresh !== false) {
-    subscribeAll({ source:'live' });
-  }
-  if (options.reschedule !== false) scheduleOperationalModePoll();
 }
 
-document.addEventListener('visibilitychange', () => scheduleOperationalModePoll());
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) scheduleOperationalModePoll();
+  else refreshOperationalMode();
+});
 
 // ── Handlers ──────────────────────────────────────────────
 function handleStatus({ column:col, status, message }) {
