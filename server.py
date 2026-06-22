@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio, gc, json, logging, os, re, urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from aiohttp import web
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
@@ -491,7 +491,7 @@ class BrowserManager:
             raise RuntimeError(first["error"])
         return first.get("tweets", [])
 
-    async def fetch_many(self, urls: list[str], column_ids: Optional[list] = None) -> list[dict]:
+    async def fetch_many(self, urls: list[str], column_ids: Optional[list[Any]] = None) -> list[dict]:
         if not urls:
             return []
         async with self._lock:
@@ -512,7 +512,9 @@ class BrowserManager:
                 failed_count = 0
                 cycle_started = asyncio.get_running_loop().time()
                 total = len(urls)
-                labels = column_ids or [None] * total
+                labels = list(column_ids or [])
+                if len(labels) < total:
+                    labels.extend([None] * (total - len(labels)))
                 for index, url in enumerate(urls, start=1):
                     column_id = labels[index - 1]
                     column_started = asyncio.get_running_loop().time()

@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import server
@@ -99,6 +100,18 @@ class RefreshCoalescingTests(unittest.IsolatedAsyncioTestCase):
         old_task.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await old_task
+
+
+class MergeConflictResolutionTests(unittest.TestCase):
+    def test_conflicted_refresh_files_have_no_merge_markers(self):
+        for path in (
+            Path("server.py"),
+            Path("tests/test_refresh_coalescing.py"),
+            Path("tests/test_runtime_cost_hotfix.py"),
+        ):
+            content = path.read_text(encoding="utf-8")
+            for marker in ("<" * 7, "=" * 7, ">" * 7):
+                self.assertNotIn(marker, content)
 
 
 if __name__ == "__main__":
