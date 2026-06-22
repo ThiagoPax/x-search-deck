@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <title>X Search Deck</title>
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="%23000000"/><text x="32" y="45" text-anchor="middle" font-family="Arial,sans-serif" font-size="42" font-weight="800" fill="%231d9bf0">X</text></svg>'>
+<link rel="apple-touch-icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180"><rect width="180" height="180" rx="40" fill="%23000000"/><text x="90" y="125" text-anchor="middle" font-family="Arial,sans-serif" font-size="118" font-weight="800" fill="%231d9bf0">X</text></svg>'>
 <style>
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 :root {
@@ -374,7 +376,7 @@ let editorialQueue = loadQueue();
 let liveMode = localStorage.getItem('xdeck_live_mode') !== '0';
 let operationalMode = 'manual_only';
 const OPERATIONAL_MODE_POLL_CRITICAL_MS = 60 * 1000;
-const OPERATIONAL_MODE_POLL_IDLE_MS = 10 * 60 * 1000;
+const OPERATIONAL_MODE_POLL_IDLE_MS = 60 * 1000;
 const OPERATIONAL_MODE_POLL_HIDDEN_MS = 30 * 60 * 1000;
 let operationalModeTimer = null;
 
@@ -931,6 +933,7 @@ function scheduleOperationalModePoll() {
 
 async function refreshOperationalMode(options = {}) {
   clearTimeout(operationalModeTimer);
+  const previousOperationalMode = operationalMode;
   try {
     const r = await fetch('/api/operational-mode', { cache:'no-store' });
     const data = await r.json();
@@ -948,11 +951,10 @@ async function refreshOperationalMode(options = {}) {
       el.textContent = 'Modo manual: automações pausadas fora da janela crítica';
     }
   }
-  if (operationalMode !== 'critical' && liveMode) {
-    liveMode = false;
-    localStorage.setItem('xdeck_live_mode', '0');
-  }
   updateLiveButton();
+  if (operationalMode === 'critical' && previousOperationalMode !== 'critical' && liveMode && options.initialRefresh !== false) {
+    subscribeAll({ source:'live' });
+  }
   if (options.reschedule !== false) scheduleOperationalModePoll();
 }
 

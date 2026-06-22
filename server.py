@@ -28,6 +28,7 @@ log = logging.getLogger(__name__)
 PORT             = int(os.environ.get("PORT", 8765))
 REFRESH_INTERVAL = int(os.environ.get("REFRESH_INTERVAL", 90))
 REFRESH_GLOBAL_TIMEOUT = int(os.environ.get("REFRESH_GLOBAL_TIMEOUT", 120))
+COLUMN_FETCH_TIMEOUT = int(os.environ.get("COLUMN_FETCH_TIMEOUT", 60))
 STAGGER_SECONDS  = int(os.environ.get("STAGGER_SECONDS", 8))
 MAX_TWEETS       = int(os.environ.get("MAX_TWEETS", 100))
 MAX_SCROLLS      = int(os.environ.get("MAX_SCROLLS", 12))
@@ -35,6 +36,10 @@ SCROLL_WAIT      = float(os.environ.get("SCROLL_WAIT", 1.1))
 PAGE_WAIT        = float(os.environ.get("PAGE_WAIT", 7))
 PLAYWRIGHT_LAUNCH_TIMEOUT = int(os.environ.get("PLAYWRIGHT_LAUNCH_TIMEOUT", 30000))
 X_COOKIES_JSON   = os.environ.get("X_COOKIES_JSON", "")
+
+
+def cycle_watchdog_timeout(columns_count: int) -> int:
+    return max(180, max(1, columns_count) * 75, REFRESH_GLOBAL_TIMEOUT)
 
 
 def current_rss_mb() -> float:
@@ -53,6 +58,28 @@ def current_rss_mb() -> float:
 def format_rss() -> str:
     rss = current_rss_mb()
     return f"{rss:.1f} MB" if rss else "indisponivel"
+
+
+def process_limit_summary() -> dict:
+    payload = {"pids_current": None, "pids_max": None, "thread_count": None}
+    try:
+        current = Path("/sys/fs/cgroup/pids.current")
+        maximum = Path("/sys/fs/cgroup/pids.max")
+        if current.exists():
+            payload["pids_current"] = current.read_text(encoding="utf-8").strip()
+        if maximum.exists():
+            payload["pids_max"] = maximum.read_text(encoding="utf-8").strip()
+    except Exception:
+        pass
+    try:
+        with open("/proc/self/status", "r", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("Threads:"):
+                    payload["thread_count"] = int(line.split()[1])
+                    break
+    except Exception:
+        pass
+    return payload
 
 
 def _process_rss_mb(pid: str) -> float:
@@ -107,12 +134,14 @@ def chromium_process_summary() -> dict:
 
 
 LAUNCH_ARGS = [
-    "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
-    "--disable-gpu", "--no-zygote", "--disable-software-rasterizer", "--disable-extensions",
-    "--disable-background-networking", "--disable-default-apps",
-    "--disable-sync", "--mute-audio", "--no-first-run",
-    "--safebrowsing-disable-auto-update",
-    "--js-flags=--max-old-space-size=192",
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-extensions",
+    "--disable-background-networking",
+    "--mute-audio",
+    "--no-first-run",
 ]
 
 
@@ -366,22 +395,21 @@ class BrowserManager:
     def __init__(self):
         self._lock = asyncio.Lock()
 
-    async def _new_page(self, pw: Playwright) -> tuple[Browser, BrowserContext, Page]:
+    async def _new_browser_context(self, pw: Playwright) -> tuple[Browser, BrowserContext]:
         browser: Optional[Browser] = None
         context: Optional[BrowserContext] = None
-        page: Optional[Page] = None
         try:
+            limits = process_limit_summary()
             log.info(
-                "playwright_launch_start rss_mb=%.1f timeout_ms=%s args=%s",
+                "playwright_launch_start rss_mb=%.1f timeout_ms=%s args=%s pids_current=%s pids_max=%s thread_count=%s",
                 current_rss_mb(),
                 PLAYWRIGHT_LAUNCH_TIMEOUT,
                 LAUNCH_ARGS,
+                limits.get("pids_current"),
+                limits.get("pids_max"),
+                limits.get("thread_count"),
             )
-            browser = await pw.chromium.launch(
-                headless=True,
-                args=LAUNCH_ARGS,
-                timeout=PLAYWRIGHT_LAUNCH_TIMEOUT,
-            )
+            browser = await pw.chromium.launch(headless=True, args=LAUNCH_ARGS, timeout=PLAYWRIGHT_LAUNCH_TIMEOUT)
             log.info("playwright_launch_success rss_mb=%.1f", current_rss_mb())
             context = await browser.new_context(
                 viewport={"width": 1024, "height": 768},
@@ -399,25 +427,27 @@ class BrowserManager:
                     log.info("✅ Cookies injetados no contexto efêmero")
                 except Exception as e:
                     log.error(f"❌ Cookies: {e}")
-
-            page = await context.new_page()
-            log.info(f"🟢 Página Playwright aberta — RSS: {format_rss()}")
-            await page.route(
-                "**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3}",
-                lambda r: r.abort()
-            )
-            await page.route("**/ads/**",       lambda r: r.abort())
-            await page.route("**/analytics/**", lambda r: r.abort())
-            return browser, context, page
+            return browser, context
         except Exception as e:
+            limits = process_limit_summary()
             log.error(
-                "playwright_launch_error type=%s message=%s rss_mb=%.1f",
-                type(e).__name__,
-                str(e),
-                current_rss_mb(),
+                "playwright_launch_error type=%s message=%s rss_mb=%.1f pids_current=%s pids_max=%s thread_count=%s",
+                type(e).__name__, str(e), current_rss_mb(),
+                limits.get("pids_current"), limits.get("pids_max"), limits.get("thread_count"),
             )
-            await self._close(page, context, browser)
+            await self._close(None, context, browser)
             raise RuntimeError("Falha ao iniciar navegador temporário para esta coleta") from e
+
+    async def _new_page(self, context: BrowserContext) -> Page:
+        page = await context.new_page()
+        log.info(f"🟢 Página Playwright aberta — RSS: {format_rss()}")
+        await page.route(
+            "**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3}",
+            lambda r: r.abort()
+        )
+        await page.route("**/ads/**",       lambda r: r.abort())
+        await page.route("**/analytics/**", lambda r: r.abort())
+        return page
 
     async def _close(self, page: Optional[Page], context: Optional[BrowserContext], browser: Optional[Browser]):
         if page:
@@ -440,37 +470,118 @@ class BrowserManager:
                 log.warning(f"Falha ao fechar Chromium: {e}")
 
     async def start(self):
-        log.info("Playwright em modo efêmero: Chromium só abre durante buscas")
+        log.info("Playwright em modo efêmero: Chromium só abre durante ciclos/buscas")
+
+    async def _fetch_with_context(self, context: BrowserContext, url: str) -> list[dict]:
+        page: Optional[Page] = None
+        try:
+            page = await self._new_page(context)
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            if "login" in page.url or "i/flow" in page.url:
+                log.error("❌ Não autenticado no X")
+            await asyncio.sleep(PAGE_WAIT)
+            return await extract_tweets(page)
+        finally:
+            await self._close(page, None, None)
 
     async def fetch(self, url: str) -> list[dict]:
+        results = await self.fetch_many([url])
+        first = results[0]
+        if first.get("error"):
+            raise RuntimeError(first["error"])
+        return first.get("tweets", [])
+
+    async def fetch_many(self, urls: list[str], column_ids: Optional[list] = None) -> list[dict]:
+        if not urls:
+            return []
         async with self._lock:
             browser: Optional[Browser] = None
             context: Optional[BrowserContext] = None
-            page: Optional[Page] = None
             pw = None
             try:
-                log.info(f"rss_before_fetch rss_mb={current_rss_mb():.1f}")
+                log.info(
+                    "cycle_fetch_start columns_count=%s rss_mb=%.1f column_timeout=%ss",
+                    len(urls),
+                    current_rss_mb(),
+                    COLUMN_FETCH_TIMEOUT,
+                )
                 pw = await async_playwright().start()
-                browser, context, page = await self._new_page(pw)
-                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                if "login" in page.url or "i/flow" in page.url:
-                    log.error("❌ Não autenticado no X")
-                await asyncio.sleep(PAGE_WAIT)
-                return await extract_tweets(page)
+                browser, context = await self._new_browser_context(pw)
+                results: list[dict] = []
+                updated_count = 0
+                failed_count = 0
+                cycle_started = asyncio.get_running_loop().time()
+                total = len(urls)
+                labels = column_ids or [None] * total
+                for index, url in enumerate(urls, start=1):
+                    column_id = labels[index - 1]
+                    column_started = asyncio.get_running_loop().time()
+                    log.info("column_fetch_start column_id=%s index=%s/%s", column_id, index, total)
+                    try:
+                        tweets = await asyncio.wait_for(
+                            self._fetch_with_context(context, url),
+                            timeout=COLUMN_FETCH_TIMEOUT,
+                        )
+                        duration = asyncio.get_running_loop().time() - column_started
+                        updated_count += 1
+                        log.info(
+                            "column_fetch_end column_id=%s index=%s/%s tweets_count=%s duration=%.1fs",
+                            column_id,
+                            index,
+                            total,
+                            len(tweets),
+                            duration,
+                        )
+                        results.append({"tweets": tweets, "duration": duration})
+                    except asyncio.TimeoutError:
+                        duration = asyncio.get_running_loop().time() - column_started
+                        failed_count += 1
+                        log.warning(
+                            "column_fetch_timeout column_id=%s index=%s/%s duration=%.1fs timeout=%ss",
+                            column_id,
+                            index,
+                            total,
+                            duration,
+                            COLUMN_FETCH_TIMEOUT,
+                        )
+                        results.append({
+                            "tweets": [],
+                            "error": f"Timeout de {COLUMN_FETCH_TIMEOUT}s na coleta desta coluna; mantendo últimos tweets.",
+                            "timeout": True,
+                            "duration": duration,
+                        })
+                    except Exception as e:
+                        duration = asyncio.get_running_loop().time() - column_started
+                        failed_count += 1
+                        log.error(
+                            "column_fetch_error column_id=%s index=%s/%s error=%r duration=%.1fs",
+                            column_id,
+                            index,
+                            total,
+                            e,
+                            duration,
+                        )
+                        results.append({"tweets": [], "error": str(e)[:120], "duration": duration})
+                log.info(
+                    "cycle_fetch_end updated_count=%s failed_count=%s duration=%.1fs",
+                    updated_count,
+                    failed_count,
+                    asyncio.get_running_loop().time() - cycle_started,
+                )
+                return results
             finally:
                 rss_before_cleanup = current_rss_mb()
-                await self._close(page, context, browser)
+                await self._close(None, context, browser)
                 if pw:
                     try:
                         await pw.stop()
                         log.info(f"🔴 Playwright parado — RSS: {format_rss()}")
                     except Exception as e:
                         log.warning(f"Falha ao parar Playwright: {e}")
-                page = None
                 context = None
                 browser = None
                 pw = None
-                log.info(f"rss_after_fetch rss_mb={current_rss_mb():.1f}")
+                log.info(f"rss_after_fetch_cycle rss_mb={current_rss_mb():.1f}")
                 gc.collect()
                 log.info(
                     "post_fetch_cleanup rss_before_cleanup=%.1f rss_after_gc=%.1f",
@@ -494,6 +605,7 @@ class XDeckApp:
         self._refresh_again = False
         self._refresh_started_at: Optional[float] = None
         self._generation = 0
+        self._manual_refresh_queue: set[int | str] = set()
 
     @staticmethod
     def _col_key(idx: int, col: dict):
@@ -567,6 +679,7 @@ class XDeckApp:
 
     async def runtime_debug_handler(self, request):
         browser_summary = chromium_process_summary()
+        process_limits = process_limit_summary()
         try:
             tasks_count = len(asyncio.all_tasks())
         except Exception:
@@ -582,11 +695,13 @@ class XDeckApp:
             "subscriptions_count": len(self.subscriptions),
             "clients_count": len(self.clients),
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            **process_limits,
             **browser_summary,
         }
         log.info(
             "runtime_memory_snapshot rss_mb=%.1f tasks=%s refresh_in_progress=%s "
-            "refresh_pending=%s operational_mode=%s critical_window=%s subscriptions=%s clients=%s",
+            "refresh_pending=%s operational_mode=%s critical_window=%s subscriptions=%s clients=%s "
+            "pids_current=%s pids_max=%s thread_count=%s",
             payload["rss_mb"],
             payload["asyncio_tasks_count"],
             payload["refresh_in_progress"],
@@ -595,6 +710,9 @@ class XDeckApp:
             payload["critical_window"],
             payload["subscriptions_count"],
             payload["clients_count"],
+            payload.get("pids_current"),
+            payload.get("pids_max"),
+            payload.get("thread_count"),
         )
         log.info(
             "chromium_process_count chromium=%s chrome=%s",
@@ -671,11 +789,50 @@ class XDeckApp:
                     if col_id is not None:
                         cfg = self.subscriptions.get(col_id)
                         if cfg:
-                            asyncio.create_task(self.refresh_column(col_id, cfg.copy(), self._generation))
+                            if self._refresh_task and not self._refresh_task.done():
+                                self._manual_refresh_queue.add(col_id)
+                                self._refresh_again = True
+                                self._log_refresh_state("pending_refresh_queued", "manual", column=col_id)
+                            else:
+                                asyncio.create_task(self.refresh_column(col_id, cfg.copy(), self._generation))
 
         self.clients.discard(ws)
         log.info(f"Cliente desconectado ({len(self.clients)})")
         return ws
+
+    async def _apply_column_results(self, col_id, cfg: dict, tweets: list[dict], generation: Optional[int] = None):
+        label = self._col_label(col_id)
+        current_cfg = self.subscriptions.get(col_id)
+        if generation is not None and generation != self._generation:
+            log.info(f"{label}: resultado antigo descartado")
+            return
+        if current_cfg is not None and _cfg_signature(current_cfg) != _cfg_signature(cfg):
+            log.info(f"{label}: configuração mudou durante coleta; descartando")
+            return
+        if not tweets and self.results.get(col_id):
+            ts = datetime.now().strftime("%H:%M:%S")
+            await self.broadcast({"type":"results","column":col_id,
+                "tweets":self.results[col_id],"updated":f"{ts} · mantido","count":len(self.results[col_id])})
+            await self.broadcast({"type":"status","column":col_id,
+                "status":"error","message":"X não renderizou resultados nesta coleta; mantendo últimos tweets."})
+            log.warning(f"{label}: 0 tweets transitório; mantendo {len(self.results[col_id])}")
+            return
+        self.results[col_id] = tweets[:MAX_TWEETS]
+        ts = datetime.now().strftime("%H:%M:%S")
+        await self.broadcast({"type":"results","column":col_id,
+            "tweets":tweets,"updated":ts,"count":len(tweets)})
+        await self.broadcast({"type":"status","column":col_id,"status":"ok"})
+        log.info(f"{label}: ✅ {len(tweets)} tweets")
+        col_label = cfg.get("name") or label
+        get_scheduler().ingest(col_id, col_label, tweets)
+        log.info(f"{label}: RSS depois da busca: {format_rss()}")
+
+    async def _preserve_column_after_error(self, col_id, message: str):
+        if self.results.get(col_id):
+            ts = datetime.now().strftime("%H:%M:%S")
+            await self.broadcast({"type":"results","column":col_id,
+                "tweets":self.results[col_id],"updated":f"{ts} · mantido","count":len(self.results[col_id])})
+        await self.broadcast({"type":"status","column":col_id,"status":"error","message":message})
 
     async def refresh_column(self, col_id, cfg: Optional[dict] = None, generation: Optional[int] = None):
         cfg = cfg or self.subscriptions.get(col_id)
@@ -687,36 +844,13 @@ class XDeckApp:
         try:
             filtered_query = apply_column_filters(cfg)
             url = build_url(filtered_query, cfg.get("sort","live"))
-            log.info(f"{label}: coletando...")
+            log.info(f"{label}: coletando busca manual/individual...")
             tweets = await self.bm.fetch(url)
-            current_cfg = self.subscriptions.get(col_id)
-            if generation is not None and generation != self._generation:
-                log.info(f"{label}: resultado antigo descartado")
-                return
-            if current_cfg is not None and _cfg_signature(current_cfg) != _cfg_signature(cfg):
-                log.info(f"{label}: configuração mudou durante coleta; descartando")
-                return
-            if not tweets and self.results.get(col_id):
-                ts = datetime.now().strftime("%H:%M:%S")
-                await self.broadcast({"type":"results","column":col_id,
-                    "tweets":self.results[col_id],"updated":f"{ts} · mantido","count":len(self.results[col_id])})
-                await self.broadcast({"type":"status","column":col_id,
-                    "status":"error","message":"X não renderizou resultados nesta coleta; mantendo últimos tweets."})
-                log.warning(f"{label}: 0 tweets transitório; mantendo {len(self.results[col_id])}")
-                return
-            self.results[col_id] = tweets[:MAX_TWEETS]
-            ts = datetime.now().strftime("%H:%M:%S")
-            await self.broadcast({"type":"results","column":col_id,
-                "tweets":tweets,"updated":ts,"count":len(tweets)})
-            await self.broadcast({"type":"status","column":col_id,"status":"ok"})
-            log.info(f"{label}: ✅ {len(tweets)} tweets")
-            col_label = cfg.get("name") or label
-            get_scheduler().ingest(col_id, col_label, tweets)
+            await self._apply_column_results(col_id, cfg, tweets, generation)
         except Exception as e:
             log.error(f"{label}: ❌ {type(e).__name__}: {e}")
             message = "Não foi possível abrir o navegador para esta coleta; mantendo a coluna estável." if "navegador temporário" in str(e) else str(e)[:120]
-            await self.broadcast({"type":"status","column":col_id,
-                "status":"error","message":message})
+            await self._preserve_column_after_error(col_id, message)
         finally:
             log.info(f"{label}: RSS depois da busca: {format_rss()}")
 
@@ -755,22 +889,13 @@ class XDeckApp:
             return
 
         if self._refresh_task and not self._refresh_task.done():
-            age = self._refresh_age_seconds()
-            if age is not None and age > REFRESH_GLOBAL_TIMEOUT:
-                self._log_refresh_state(
-                    "refresh_timeout",
-                    source,
-                    logging.WARNING,
-                    age=f"{age:.1f}s",
-                    timeout=f"{REFRESH_GLOBAL_TIMEOUT}s",
-                )
-                self._refresh_task.cancel()
-                self._unlock_refresh(source, task=self._refresh_task)
+            if self._refresh_again:
+                self._log_refresh_state("pending_refresh_skipped_if_duplicate", source)
             else:
                 self._refresh_again = True
-                self._log_refresh_state("refresh_pending_detected", source)
-                log.info("Refresh global já em andamento; novo ciclo enfileirado")
-                return
+                self._log_refresh_state("pending_refresh_queued", source)
+                log.info("Refresh global já em andamento; próximo ciclo enfileirado sem sobreposição")
+            return
 
         self._refresh_started_at = asyncio.get_running_loop().time()
         self._refresh_task = asyncio.create_task(self.refresh_all(source=source))
@@ -778,26 +903,54 @@ class XDeckApp:
     async def _run_refresh_cycle(self, source: str):
         generation = self._generation
         snapshot = {col_id: cfg.copy() for col_id, cfg in self.subscriptions.items()}
+        ordered = sorted(snapshot, key=str)
+        cycle_started = asyncio.get_running_loop().time()
         self._log_refresh_state("refresh_start", source, columns=len(snapshot))
-        for col_id in sorted(snapshot, key=str):
-            await self.refresh_column(col_id, snapshot[col_id], generation)
+        fetch_plan = []
+        for col_id in ordered:
+            cfg = snapshot[col_id]
+            if not cfg or not cfg.get("query", "").strip():
+                continue
+            label = self._col_label(col_id)
+            await self.broadcast({"type":"status","column":col_id,"status":"loading"})
+            log.info(f"{label}: RSS antes da busca: {format_rss()}")
+            filtered_query = apply_column_filters(cfg)
+            fetch_plan.append((col_id, cfg, build_url(filtered_query, cfg.get("sort","live"))))
+        try:
+            cycle_results = await self.bm.fetch_many([item[2] for item in fetch_plan], column_ids=[item[0] for item in fetch_plan])
+        except Exception as e:
+            log.error("refresh_cycle_browser_error type=%s message=%s columns=%s", type(e).__name__, e, len(fetch_plan))
+            message = "Não foi possível abrir o navegador para esta coleta; mantendo a coluna estável." if "navegador temporário" in str(e) else str(e)[:120]
+            for col_id, _cfg, _url in fetch_plan:
+                await self._preserve_column_after_error(col_id, message)
+                log.info(f"{self._col_label(col_id)}: RSS depois da busca: {format_rss()}")
+            self._log_refresh_state("refresh_end", source, columns=len(snapshot), browser_error=True, duration=f"{asyncio.get_running_loop().time() - cycle_started:.1f}s")
+            return
+        for (col_id, cfg, _url), result in zip(fetch_plan, cycle_results):
             if generation != self._generation:
                 log.info("Subscriptions mudaram; interrompendo ciclo antigo")
                 break
+            if result.get("error"):
+                await self._preserve_column_after_error(col_id, result["error"])
+            else:
+                await self._apply_column_results(col_id, cfg, result.get("tweets", []), generation)
             await asyncio.sleep(STAGGER_SECONDS)
         if is_critical_window_now():
             get_scheduler().dispatch_scheduled()
-        self._log_refresh_state("refresh_end", source, columns=len(snapshot))
+        self._log_refresh_state("refresh_end", source, columns=len(snapshot), duration=f"{asyncio.get_running_loop().time() - cycle_started:.1f}s")
 
     async def _run_refresh_cycle_with_timeout(self, source: str):
+        columns_count = len(self.subscriptions)
+        watchdog_timeout = cycle_watchdog_timeout(columns_count)
         try:
-            await asyncio.wait_for(self._run_refresh_cycle(source), timeout=REFRESH_GLOBAL_TIMEOUT)
+            await asyncio.wait_for(self._run_refresh_cycle(source), timeout=watchdog_timeout)
         except asyncio.TimeoutError:
             self._log_refresh_state(
                 "refresh_timeout",
                 source,
                 logging.WARNING,
-                timeout=f"{REFRESH_GLOBAL_TIMEOUT}s",
+                timeout=f"{watchdog_timeout}s",
+                columns_count=columns_count,
             )
         except asyncio.CancelledError:
             self._log_refresh_state("refresh_error", source, logging.WARNING, error="cancelled")
@@ -810,8 +963,9 @@ class XDeckApp:
             self._refresh_again = False
             await self._run_refresh_cycle_with_timeout(source)
             if self._refresh_again:
-                self._log_refresh_state("refresh_pending_executed", source)
+                self._log_refresh_state("pending_refresh_executed_after_cycle", source, manual_queue=len(self._manual_refresh_queue))
                 self._refresh_again = False
+                self._manual_refresh_queue.clear()
                 await self._run_refresh_cycle_with_timeout(source)
         finally:
             self._unlock_refresh(source)
