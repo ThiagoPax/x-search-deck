@@ -19,8 +19,11 @@ class RefreshTestApp(server.XDeckApp):
         self.subscriptions = {"col": {"query": "from:test"}}
         self.column_calls = 0
         self.cycles_started = 0
+        async def fake_fetch_many(urls):
+            return [[] for _url in urls]
+        self.bm.fetch_many = fake_fetch_many
 
-    async def refresh_column(self, col_id, cfg=None, generation=None):
+    async def _apply_column_results(self, col_id, cfg, tweets, generation=None):
         self.column_calls += 1
 
     async def _run_refresh_cycle(self, source: str):
@@ -29,13 +32,13 @@ class RefreshTestApp(server.XDeckApp):
 
 
 class RaisingRefreshApp(RefreshTestApp):
-    async def refresh_column(self, col_id, cfg=None, generation=None):
+    async def _apply_column_results(self, col_id, cfg, tweets, generation=None):
         self.column_calls += 1
         raise RuntimeError("boom during refresh")
 
 
 class PendingRefreshApp(RefreshTestApp):
-    async def refresh_column(self, col_id, cfg=None, generation=None):
+    async def _apply_column_results(self, col_id, cfg, tweets, generation=None):
         self.column_calls += 1
         if self.column_calls == 1:
             self.schedule_refresh_all(source="live")

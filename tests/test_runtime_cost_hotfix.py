@@ -45,12 +45,13 @@ class RuntimeCostHotfixTests(unittest.IsolatedAsyncioTestCase):
         app.subscriptions = {"col": {"query": "from:test"}}
         calls = []
 
-        async def fake_refresh_column(col_id, cfg=None, generation=None):
-            calls.append((col_id, cfg, generation))
+        async def fake_fetch_many(urls):
+            calls.extend(urls)
+            return [[] for _url in urls]
 
         with patch.object(server, "is_critical_window_now", return_value=False), \
                 patch.object(server, "STAGGER_SECONDS", 0), \
-                patch.object(app, "refresh_column", side_effect=fake_refresh_column):
+                patch.object(app.bm, "fetch_many", side_effect=fake_fetch_many):
             app.schedule_refresh_all(source="manual")
             await app._refresh_task
 
@@ -71,7 +72,7 @@ class FrontendPollingStaticTests(unittest.TestCase):
         html = Path("interface.html").read_text(encoding="utf-8")
 
         self.assertIn("OPERATIONAL_MODE_POLL_CRITICAL_MS = 60 * 1000", html)
-        self.assertIn("OPERATIONAL_MODE_POLL_IDLE_MS = 10 * 60 * 1000", html)
+        self.assertIn("OPERATIONAL_MODE_POLL_IDLE_MS = 60 * 1000", html)
         self.assertIn("OPERATIONAL_MODE_POLL_HIDDEN_MS = 30 * 60 * 1000", html)
         self.assertIn("document.hidden", html)
         self.assertIn("visibilitychange", html)
