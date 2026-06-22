@@ -16,9 +16,10 @@ class LaunchArgsStaticTests(unittest.TestCase):
             "--disable-dev-shm-usage",
             "--disable-setuid-sandbox",
             "--disable-gpu",
-            "--no-zygote",
         ):
             self.assertIn(arg, server.LAUNCH_ARGS)
+        for removed_arg in ("--no-zygote", "--js-flags=--max-old-space-size=192", "--disable-software-rasterizer"):
+            self.assertNotIn(removed_arg, server.LAUNCH_ARGS)
 
     def test_launch_failure_path_logs_closes_and_raises_friendly_error(self):
         source = Path("server.py").read_text(encoding="utf-8")
@@ -26,7 +27,7 @@ class LaunchArgsStaticTests(unittest.TestCase):
         self.assertIn("playwright_launch_start", source)
         self.assertIn("playwright_launch_success", source)
         self.assertIn("playwright_launch_error type=%s message=%s rss_mb=%.1f", source)
-        self.assertIn("await self._close(page, context, browser)", source)
+        self.assertIn("await self._close(None, context, browser)", source)
         self.assertIn("Falha ao iniciar navegador temporário para esta coleta", source)
 
 
@@ -62,7 +63,7 @@ class PlaywrightLaunchFailureTests(unittest.IsolatedAsyncioTestCase):
     async def test_launch_failure_during_column_does_not_lock_global_refresh(self):
         app = server.XDeckApp()
         app.subscriptions = {"col": {"query": "from:test"}}
-        app.bm.fetch = AsyncMock(side_effect=RuntimeError("Falha ao iniciar navegador temporário para esta coleta"))
+        app.bm.fetch_many = AsyncMock(side_effect=RuntimeError("Falha ao iniciar navegador temporário para esta coleta"))
         messages = []
 
         async def capture(message):
