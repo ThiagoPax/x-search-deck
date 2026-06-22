@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import server
@@ -19,8 +20,8 @@ class RefreshTestApp(server.XDeckApp):
         self.subscriptions = {"col": {"query": "from:test"}}
         self.column_calls = 0
         self.cycles_started = 0
-        async def fake_fetch_many(urls):
-            return [[] for _url in urls]
+        async def fake_fetch_many(urls, column_ids=None):
+            return [{"tweets": []} for _url in urls]
         self.bm.fetch_many = fake_fetch_many
 
     async def _apply_column_results(self, col_id, cfg, tweets, generation=None):
@@ -85,22 +86,32 @@ class RefreshCoalescingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(app._refresh_task)
         self.assertFalse(app._refresh_again)
 
-    async def test_manual_refresh_recovers_from_stale_running_task(self):
+    async def test_manual_refresh_does_not_cancel_running_cycle(self):
         app = RefreshTestApp()
         old_task = asyncio.create_task(asyncio.sleep(60))
         app._refresh_task = old_task
         app._refresh_started_at = asyncio.get_running_loop().time() - 5
 
         app.schedule_refresh_all(source="manual")
-        new_task = app._refresh_task
-        await new_task
-        await asyncio.sleep(0)
 
-        self.assertIsNot(new_task, old_task)
-        self.assertTrue(old_task.cancelled())
-        self.assertEqual(app.column_calls, 1)
-        self.assertIsNone(app._refresh_task)
-        self.assertFalse(app._refresh_again)
+        self.assertIs(app._refresh_task, old_task)
+        self.assertFalse(old_task.cancelled())
+        self.assertTrue(app._refresh_again)
+        old_task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await old_task
+
+
+class MergeConflictResolutionTests(unittest.TestCase):
+    def test_conflicted_refresh_files_have_no_merge_markers(self):
+        for path in (
+            Path("server.py"),
+            Path("tests/test_refresh_coalescing.py"),
+            Path("tests/test_runtime_cost_hotfix.py"),
+        ):
+            content = path.read_text(encoding="utf-8")
+            for marker in ("<" * 7, "=" * 7, ">" * 7):
+                self.assertNotIn(marker, content)
 
 
 if __name__ == "__main__":
