@@ -2,7 +2,7 @@
 X Search Deck — Railway/Render com Playwright efêmero
 """
 from __future__ import annotations
-import asyncio, gc, json, logging, os, re, urllib.parse
+import asyncio, gc, json, logging, os, re, signal, time, urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -35,6 +35,8 @@ MAX_SCROLLS      = int(os.environ.get("MAX_SCROLLS", 12))
 SCROLL_WAIT      = float(os.environ.get("SCROLL_WAIT", 1.1))
 PAGE_WAIT        = float(os.environ.get("PAGE_WAIT", 7))
 PLAYWRIGHT_LAUNCH_TIMEOUT = int(os.environ.get("PLAYWRIGHT_LAUNCH_TIMEOUT", 30000))
+PLAYWRIGHT_PID_LIMIT_RATIO = float(os.environ.get("PLAYWRIGHT_PID_LIMIT_RATIO", 0.90))
+PLAYWRIGHT_LAUNCH_COOLDOWN = int(os.environ.get("PLAYWRIGHT_LAUNCH_COOLDOWN", 300))
 X_COOKIES_JSON   = os.environ.get("X_COOKIES_JSON", "")
 
 
@@ -131,6 +133,48 @@ def chromium_process_summary() -> dict:
         "chrome_process_count": chrome_count,
         "browser_processes": processes[:20],
     }
+
+
+def _numeric_pid_limits(limits: Optional[dict] = None) -> tuple[Optional[int], Optional[int]]:
+    limits = limits or process_limit_summary()
+    try:
+        current = int(limits.get("pids_current"))
+        maximum_raw = limits.get("pids_max")
+        maximum = None if maximum_raw in (None, "", "max") else int(maximum_raw)
+        return current, maximum
+    except (TypeError, ValueError):
+        return None, None
+
+
+def pid_limit_is_saturated(limits: Optional[dict] = None) -> bool:
+    current, maximum = _numeric_pid_limits(limits)
+    return bool(maximum and current is not None and current / maximum >= PLAYWRIGHT_PID_LIMIT_RATIO)
+
+
+def cleanup_orphaned_chromium_processes() -> int:
+    """Ask orphaned Chromium processes to exit; never targets this Python process tree."""
+    cleaned = 0
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            name = (entry / "comm").read_text(encoding="utf-8").strip().lower()
+            status = (entry / "status").read_text(encoding="utf-8")
+            parent_match = re.search(r"^PPid:\s+(\d+)$", status, flags=re.MULTILINE)
+            parent_pid = int(parent_match.group(1)) if parent_match else -1
+            if parent_pid != 1 or not ("chromium" in name or "chrome" in name):
+                continue
+            os.kill(int(entry.name), signal.SIGTERM)
+            cleaned += 1
+        except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError):
+            continue
+    if cleaned:
+        log.warning("orphaned_chromium_cleanup_requested process_count=%s", cleaned)
+    return cleaned
+
+
+class BrowserLaunchUnavailable(RuntimeError):
+    pass
 
 
 LAUNCH_ARGS = [
@@ -394,11 +438,40 @@ async def _one(art) -> dict:
 class BrowserManager:
     def __init__(self):
         self._lock = asyncio.Lock()
+        self._launch_cooldown_until = 0.0
+        self._manual_request = True
 
-    async def _new_browser_context(self, pw: Playwright) -> tuple[Browser, BrowserContext]:
+    def _cooldown_active(self) -> bool:
+        return time.monotonic() < self._launch_cooldown_until
+
+    def _check_launch_available(self, *, manual: bool) -> None:
+        cleanup_orphaned_chromium_processes()
+        limits = process_limit_summary()
+        browser_summary = chromium_process_summary()
+        cooldown_active = self._cooldown_active()
+        saturated = pid_limit_is_saturated(limits)
+        log.info(
+            "browser_launch_preflight pids_current=%s pids_max=%s chromium_process_count=%s "
+            "browser_launch_cooldown_active=%s browser_launch_skipped_due_to_pid_limit=%s",
+            limits.get("pids_current"), limits.get("pids_max"),
+            browser_summary["chromium_process_count"], cooldown_active, saturated,
+        )
+        if saturated:
+            log.warning(
+                "browser_launch_skipped_due_to_pid_limit=true pids_current=%s pids_max=%s threshold=%.0f%%",
+                limits.get("pids_current"), limits.get("pids_max"), PLAYWRIGHT_PID_LIMIT_RATIO * 100,
+            )
+            raise BrowserLaunchUnavailable("Limite de processos do ambiente quase esgotado; tente novamente em alguns minutos.")
+        if cooldown_active and not manual:
+            remaining = max(1, int(self._launch_cooldown_until - time.monotonic()))
+            log.warning("browser_launch_cooldown_active=true remaining_seconds=%s", remaining)
+            raise BrowserLaunchUnavailable("Navegador temporariamente em recuperação; nova tentativa automática adiada.")
+
+    async def _new_browser_context(self, pw: Playwright, *, manual: bool = False) -> tuple[Browser, BrowserContext]:
         browser: Optional[Browser] = None
         context: Optional[BrowserContext] = None
         try:
+            self._check_launch_available(manual=manual)
             limits = process_limit_summary()
             log.info(
                 "playwright_launch_start rss_mb=%.1f timeout_ms=%s args=%s pids_current=%s pids_max=%s thread_count=%s",
@@ -429,6 +502,8 @@ class BrowserManager:
                     log.error(f"❌ Cookies: {e}")
             return browser, context
         except Exception as e:
+            if not isinstance(e, BrowserLaunchUnavailable):
+                self._launch_cooldown_until = time.monotonic() + PLAYWRIGHT_LAUNCH_COOLDOWN
             limits = process_limit_summary()
             log.error(
                 "playwright_launch_error type=%s message=%s rss_mb=%.1f pids_current=%s pids_max=%s thread_count=%s",
@@ -436,6 +511,8 @@ class BrowserManager:
                 limits.get("pids_current"), limits.get("pids_max"), limits.get("thread_count"),
             )
             await self._close(None, context, browser)
+            if isinstance(e, BrowserLaunchUnavailable):
+                raise
             raise RuntimeError("Falha ao iniciar navegador temporário para esta coleta") from e
 
     async def _new_page(self, context: BrowserContext) -> Page:
@@ -499,6 +576,9 @@ class BrowserManager:
             context: Optional[BrowserContext] = None
             pw = None
             try:
+                # Check before starting Playwright's driver process and again immediately before launch.
+                manual = self._manual_request
+                self._check_launch_available(manual=manual)
                 log.info(
                     "cycle_fetch_start columns_count=%s rss_mb=%.1f column_timeout=%ss",
                     len(urls),
@@ -506,7 +586,7 @@ class BrowserManager:
                     COLUMN_FETCH_TIMEOUT,
                 )
                 pw = await async_playwright().start()
-                browser, context = await self._new_browser_context(pw)
+                browser, context = await self._new_browser_context(pw, manual=manual)
                 results: list[dict] = []
                 updated_count = 0
                 failed_count = 0
@@ -919,7 +999,10 @@ class XDeckApp:
             filtered_query = apply_column_filters(cfg)
             fetch_plan.append((col_id, cfg, build_url(filtered_query, cfg.get("sort","live"))))
         try:
-            cycle_results = await self.bm.fetch_many([item[2] for item in fetch_plan], column_ids=[item[0] for item in fetch_plan])
+            self.bm._manual_request = source == "manual"
+            cycle_results = await self.bm.fetch_many(
+                [item[2] for item in fetch_plan], column_ids=[item[0] for item in fetch_plan]
+            )
         except Exception as e:
             log.error("refresh_cycle_browser_error type=%s message=%s columns=%s", type(e).__name__, e, len(fetch_plan))
             message = "Não foi possível abrir o navegador para esta coleta; mantendo a coluna estável." if "navegador temporário" in str(e) else str(e)[:120]
@@ -928,6 +1011,8 @@ class XDeckApp:
                 log.info(f"{self._col_label(col_id)}: RSS depois da busca: {format_rss()}")
             self._log_refresh_state("refresh_end", source, columns=len(snapshot), browser_error=True, duration=f"{asyncio.get_running_loop().time() - cycle_started:.1f}s")
             return
+        finally:
+            self.bm._manual_request = True
         for (col_id, cfg, _url), result in zip(fetch_plan, cycle_results):
             if generation != self._generation:
                 log.info("Subscriptions mudaram; interrompendo ciclo antigo")
